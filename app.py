@@ -1,6 +1,6 @@
 """
-LINE Chatbot — Student Support Hub v3
-Relay system using line-bot-sdk 3.5.1 + Python 3.12
+LINE Chatbot — Student Support Hub v5
+Beautiful Flex Message UI + multi-conversation relay
 """
 
 import os
@@ -36,8 +36,6 @@ SESSIONS_FILE = os.path.join(DATA_DIR, "sessions.json")
 PENDING_FILE = os.path.join(DATA_DIR, "pending.json")
 
 
-# ─── File helpers ────────────────────────────────────────────────
-
 def _load(path, default):
     if os.path.exists(path):
         with open(path, "r", encoding="utf-8") as f:
@@ -48,45 +46,25 @@ def _save(path, data):
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
-def load_contacts():
-    return _load(CONTACTS_FILE, DEFAULT_CONTACTS)
-
-def save_contacts(data):
-    _save(CONTACTS_FILE, data)
-
-def load_sessions():
-    return _load(SESSIONS_FILE, {})
-
-def save_sessions(data):
-    _save(SESSIONS_FILE, data)
-
-def load_pending():
-    return _load(PENDING_FILE, {})
-
-def save_pending(data):
-    _save(PENDING_FILE, data)
-
+def load_contacts(): return _load(CONTACTS_FILE, DEFAULT_CONTACTS)
+def save_contacts(data): _save(CONTACTS_FILE, data)
+def load_sessions(): return _load(SESSIONS_FILE, {})
+def save_sessions(data): _save(SESSIONS_FILE, data)
+def load_pending(): return _load(PENDING_FILE, {})
+def save_pending(data): _save(PENDING_FILE, data)
 
 DEFAULT_CONTACTS = {
-    "counselors": [
-        {"name": "Khun Somporn", "role": "Admissions & Academic Guidance", "user_id": "", "email": "somporn@school.ac.th"}
-    ],
-    "tutors": [
-        {"name": "Ethan", "role": "Team Lead - General Support", "user_id": "", "subjects": ["Math", "Science", "English"]}
-    ],
+    "counselors": [{"name": "Khun Somporn", "role": "Admissions & Academic Guidance", "user_id": "", "email": "somporn@school.ac.th"}],
+    "tutors": [{"name": "Ethan", "role": "Team Lead - General Support", "user_id": "", "subjects": ["Math", "Science", "English"]}],
     "scholarship": {
-        "contact_name": "Ethan",
-        "contact_user_id": "",
+        "contact_name": "Ethan", "contact_user_id": "",
         "google_form_url": "https://docs.google.com/forms/d/e/YOUR_FORM_ID/viewform",
         "google_doc_url": "https://docs.google.com/document/d/YOUR_DOC_ID/edit",
         "description": "We offer guidance on scholarships for students at risk of dropping out. Fill in the form and we will match you with opportunities.",
     },
-    "job_contacts": [
-        {"name": "Job Fair Contact", "company": "Company Name", "role": "HR / Recruiter", "user_id": "", "industry": "Technology"}
-    ],
+    "job_contacts": [{"name": "Job Fair Contact", "company": "Company Name", "role": "HR / Recruiter", "user_id": "", "industry": "Technology"}],
     "admin_ids": [],
 }
-
 if not os.path.exists(CONTACTS_FILE):
     save_contacts(DEFAULT_CONTACTS)
 
@@ -97,105 +75,441 @@ def get_api():
     return MessagingApi(ApiClient(configuration))
 
 def reply(token, messages):
-    if not isinstance(messages, list):
-        messages = [messages]
+    if not isinstance(messages, list): messages = [messages]
     get_api().reply_message(ReplyMessageRequest(reply_token=token, messages=messages))
 
 def push(user_id, messages):
-    if not isinstance(messages, list):
-        messages = [messages]
+    if not isinstance(messages, list): messages = [messages]
     get_api().push_message(PushMessageRequest(to=user_id, messages=messages))
 
-def text_msg(t):
-    return TextMessage(text=t)
+def T(t): return TextMessage(text=t)
+
+def F(alt, d): return FlexMessage(alt_text=alt, contents=FlexContainer.from_dict(d))
 
 def get_display_name(user_id):
-    try:
-        profile = get_api().get_profile(user_id)
-        return profile.display_name
-    except Exception:
-        return "Someone"
+    try: return get_api().get_profile(user_id).display_name
+    except: return "Someone"
 
 
-# ─── Flex builders ───────────────────────────────────────────────
+# ─── Beautiful Flex Message Builders ─────────────────────────────
+
+# Color palette
+C = {
+    "blue": "#0066FF",
+    "blue_light": "#E8F0FE",
+    "green": "#00C853",
+    "green_light": "#E8F5E9",
+    "red": "#FF3D00",
+    "red_light": "#FFEBEE",
+    "orange": "#FF9100",
+    "orange_light": "#FFF3E0",
+    "gray": "#78909C",
+    "gray_light": "#F5F5F5",
+    "dark": "#1A1A2E",
+    "white": "#FFFFFF",
+    "text": "#263238",
+    "text_sub": "#78909C",
+}
+
 
 def build_main_menu():
-    flex_json = {
+    return F("Student Support Hub", {
         "type": "bubble",
-        "hero": {
+        "size": "mega",
+        "header": {
             "type": "box", "layout": "vertical",
+            "backgroundColor": C["dark"],
+            "paddingAll": "24px",
             "contents": [
-                {"type": "text", "text": "Student Support Hub", "weight": "bold", "size": "xl", "color": "#1a73e8", "align": "center"},
-                {"type": "text", "text": "How can we help you today?", "size": "sm", "color": "#666666", "align": "center", "margin": "md"},
+                {"type": "text", "text": "STUDENT", "size": "sm", "color": "#FFFFFF80", "weight": "bold", "letterSpacing": "3px"},
+                {"type": "text", "text": "Support Hub", "size": "xxl", "color": C["white"], "weight": "bold", "margin": "xs"},
+                {"type": "text", "text": "Tap an option below to get connected", "size": "xs", "color": "#FFFFFF90", "margin": "lg"},
             ],
-            "paddingAll": "20px", "backgroundColor": "#f0f6ff",
         },
         "body": {
-            "type": "box", "layout": "vertical", "spacing": "md",
+            "type": "box", "layout": "vertical", "spacing": "lg", "paddingAll": "20px",
             "contents": [
-                _btn("1 - Talk to a Counselor", "#1a73e8"),
-                _btn("2 - Get Education & Test Help", "#34a853"),
-                _btn("3 - Scholarship Information", "#ea4335"),
-                _btn("4 - Job Search Help", "#fbbc04"),
+                _menu_card("1", "Counselor", "Admissions, academic guidance", C["blue"], C["blue_light"]),
+                _menu_card("2", "Education Help", "Tutoring, test prep, study support", C["green"], C["green_light"]),
+                _menu_card("3", "Scholarships", "Financial aid, application forms", C["red"], C["red_light"]),
+                _menu_card("4", "Job Search", "Career contacts from job fairs", C["orange"], C["orange_light"]),
             ],
-            "paddingAll": "16px",
         },
         "footer": {
-            "type": "box", "layout": "vertical",
-            "contents": [{"type": "text", "text": "Reply 1-4 to connect with someone who can help", "size": "xs", "color": "#999999", "align": "center", "wrap": True}],
-            "paddingAll": "12px",
+            "type": "box", "layout": "vertical", "paddingAll": "16px",
+            "contents": [
+                {"type": "text", "text": "Reply with 1, 2, 3, or 4", "size": "xs", "color": C["text_sub"], "align": "center"},
+            ],
         },
-    }
-    return FlexMessage(alt_text="Student Support Hub - Reply 1-4", contents=FlexContainer.from_dict(flex_json))
+    })
 
-def _btn(label, color):
+
+def _menu_card(num, title, desc, color, bg_color):
     return {
-        "type": "box", "layout": "horizontal",
-        "contents": [{"type": "text", "text": label, "size": "md", "color": "#333333", "flex": 1, "gravity": "center"}],
-        "paddingAll": "14px", "backgroundColor": "#ffffff", "cornerRadius": "8px", "borderWidth": "1px", "borderColor": color,
+        "type": "box", "layout": "horizontal", "spacing": "lg",
+        "backgroundColor": bg_color,
+        "cornerRadius": "12px",
+        "paddingAll": "16px",
+        "contents": [
+            {
+                "type": "box", "layout": "vertical",
+                "width": "44px", "height": "44px",
+                "backgroundColor": color,
+                "cornerRadius": "22px",
+                "justifyContent": "center", "alignItems": "center",
+                "contents": [{"type": "text", "text": num, "size": "lg", "color": C["white"], "weight": "bold", "align": "center"}],
+            },
+            {
+                "type": "box", "layout": "vertical", "flex": 1,
+                "contents": [
+                    {"type": "text", "text": title, "size": "md", "weight": "bold", "color": C["text"]},
+                    {"type": "text", "text": desc, "size": "xs", "color": C["text_sub"], "margin": "xs", "wrap": True},
+                ],
+            },
+        ],
     }
+
+
+def build_connecting_card(helper_name, category):
+    emoji = {"counselor": "graduation cap", "tutor": "books", "job": "briefcase", "scholarship": "trophy"}.get(category, "")
+    label = {"counselor": "Counselor", "tutor": "Education Support", "job": "Job Contact", "scholarship": "Scholarship"}.get(category, category)
+    color = {"counselor": C["blue"], "tutor": C["green"], "job": C["orange"], "scholarship": C["red"]}.get(category, C["blue"])
+    bg = {"counselor": C["blue_light"], "tutor": C["green_light"], "job": C["orange_light"], "scholarship": C["red_light"]}.get(category, C["blue_light"])
+
+    return F("Connected to " + helper_name, {
+        "type": "bubble",
+        "size": "mega",
+        "body": {
+            "type": "box", "layout": "vertical", "paddingAll": "24px", "spacing": "lg",
+            "contents": [
+                # Status badge
+                {
+                    "type": "box", "layout": "horizontal", "spacing": "sm",
+                    "contents": [
+                        {"type": "box", "layout": "vertical", "width": "10px", "height": "10px", "backgroundColor": C["green"], "cornerRadius": "5px", "margin": "sm"},
+                        {"type": "text", "text": "CONNECTED", "size": "xxs", "color": C["green"], "weight": "bold"},
+                    ],
+                },
+                # Name + role
+                {"type": "text", "text": helper_name, "size": "xl", "weight": "bold", "color": C["text"]},
+                {
+                    "type": "box", "layout": "horizontal", "spacing": "sm",
+                    "backgroundColor": bg, "cornerRadius": "20px",
+                    "paddingStart": "12px", "paddingEnd": "12px", "paddingTop": "6px", "paddingBottom": "6px",
+                    "width": "180px",
+                    "contents": [
+                        {"type": "text", "text": label, "size": "xs", "color": color, "weight": "bold"},
+                    ],
+                },
+                {"type": "separator", "color": "#E0E0E0"},
+                # Instructions
+                {"type": "text", "text": "Type your message below and it will be forwarded directly.", "size": "sm", "color": C["text_sub"], "wrap": True},
+                {
+                    "type": "box", "layout": "vertical",
+                    "backgroundColor": C["gray_light"], "cornerRadius": "8px", "paddingAll": "12px",
+                    "contents": [
+                        {"type": "text", "text": "Type 'exit' to end this conversation", "size": "xs", "color": C["gray"], "align": "center"},
+                    ],
+                },
+            ],
+        },
+    })
+
+
+def build_incoming_card(student_name, category, conv_count):
+    label = {"counselor": "Counseling", "tutor": "Education", "job": "Job Search", "scholarship": "Scholarship"}.get(category, category)
+    color = {"counselor": C["blue"], "tutor": C["green"], "job": C["orange"], "scholarship": C["red"]}.get(category, C["blue"])
+
+    contents = [
+        {
+            "type": "box", "layout": "horizontal",
+            "contents": [
+                {"type": "text", "text": "NEW CHAT", "size": "xxs", "color": C["white"], "weight": "bold"},
+            ],
+            "backgroundColor": color, "cornerRadius": "4px",
+            "paddingStart": "8px", "paddingEnd": "8px", "paddingTop": "4px", "paddingBottom": "4px",
+            "width": "80px",
+        },
+        {"type": "text", "text": student_name, "size": "xl", "weight": "bold", "color": C["text"], "margin": "md"},
+        {"type": "text", "text": "Needs help with: " + label, "size": "sm", "color": C["text_sub"], "margin": "xs"},
+        {"type": "separator", "color": "#E0E0E0", "margin": "lg"},
+        {"type": "text", "text": "Just reply normally to respond.", "size": "sm", "color": C["text_sub"], "margin": "lg", "wrap": True},
+    ]
+
+    if conv_count > 1:
+        contents.append({
+            "type": "box", "layout": "vertical",
+            "backgroundColor": C["gray_light"], "cornerRadius": "8px", "paddingAll": "12px", "margin": "lg",
+            "contents": [
+                {"type": "text", "text": "You have " + str(conv_count) + " active chats", "size": "xs", "color": C["text"], "weight": "bold", "align": "center"},
+                {"type": "text", "text": "@Name message  =  reply to specific person", "size": "xxs", "color": C["gray"], "align": "center", "margin": "sm"},
+                {"type": "text", "text": "exit Name  =  end a specific chat", "size": "xxs", "color": C["gray"], "align": "center", "margin": "xs"},
+                {"type": "text", "text": "/chats  =  see all conversations", "size": "xxs", "color": C["gray"], "align": "center", "margin": "xs"},
+            ],
+        })
+
+    return F("New chat from " + student_name, {
+        "type": "bubble", "size": "mega",
+        "body": {"type": "box", "layout": "vertical", "paddingAll": "24px", "spacing": "sm", "contents": contents},
+    })
+
+
+def build_inbox(helper_session):
+    convos = helper_session.get("conversations", {})
+    replying_to = helper_session.get("replying_to")
+
+    if not convos:
+        return F("No active chats", {
+            "type": "bubble",
+            "body": {"type": "box", "layout": "vertical", "paddingAll": "24px", "contents": [
+                {"type": "text", "text": "No active conversations", "size": "md", "color": C["text_sub"], "align": "center"},
+            ]},
+        })
+
+    chat_rows = []
+    for sid, info in convos.items():
+        is_current = sid == replying_to
+        cat = info.get("category", "?")
+        color = {"counselor": C["blue"], "tutor": C["green"], "job": C["orange"], "scholarship": C["red"]}.get(cat, C["blue"])
+        label = {"counselor": "Counseling", "tutor": "Education", "job": "Job", "scholarship": "Scholarship"}.get(cat, cat)
+
+        elapsed = int(time.time()) - info.get("started", int(time.time()))
+        if elapsed < 60:
+            time_str = "Just now"
+        elif elapsed < 3600:
+            time_str = str(elapsed // 60) + "m ago"
+        else:
+            time_str = str(elapsed // 3600) + "h ago"
+
+        row = {
+            "type": "box", "layout": "horizontal", "spacing": "lg",
+            "backgroundColor": C["blue_light"] if is_current else C["white"],
+            "cornerRadius": "12px",
+            "paddingAll": "14px",
+            "borderWidth": "2px" if is_current else "1px",
+            "borderColor": C["blue"] if is_current else "#E0E0E0",
+            "contents": [
+                # Colored dot
+                {
+                    "type": "box", "layout": "vertical",
+                    "width": "40px", "height": "40px",
+                    "backgroundColor": color, "cornerRadius": "20px",
+                    "justifyContent": "center", "alignItems": "center",
+                    "contents": [
+                        {"type": "text", "text": info["name"][0].upper(), "size": "md", "color": C["white"], "weight": "bold", "align": "center"},
+                    ],
+                },
+                # Info
+                {
+                    "type": "box", "layout": "vertical", "flex": 1,
+                    "contents": [
+                        {
+                            "type": "box", "layout": "horizontal",
+                            "contents": [
+                                {"type": "text", "text": info["name"], "size": "sm", "weight": "bold", "color": C["text"], "flex": 1},
+                                {"type": "text", "text": time_str, "size": "xxs", "color": C["text_sub"], "align": "end"},
+                            ],
+                        },
+                        {
+                            "type": "box", "layout": "horizontal", "spacing": "sm", "margin": "xs",
+                            "contents": [
+                                {"type": "text", "text": label, "size": "xxs", "color": color, "weight": "bold"},
+                                {"type": "text", "text": " << replying" if is_current else "", "size": "xxs", "color": C["blue"]},
+                            ],
+                        },
+                    ],
+                },
+            ],
+        }
+        chat_rows.append(row)
+
+    return F("Your conversations", {
+        "type": "bubble", "size": "mega",
+        "header": {
+            "type": "box", "layout": "horizontal",
+            "backgroundColor": C["dark"], "paddingAll": "18px",
+            "contents": [
+                {"type": "text", "text": "Inbox", "size": "lg", "color": C["white"], "weight": "bold", "flex": 1},
+                {
+                    "type": "box", "layout": "vertical",
+                    "backgroundColor": C["blue"], "cornerRadius": "12px",
+                    "paddingStart": "10px", "paddingEnd": "10px", "paddingTop": "4px", "paddingBottom": "4px",
+                    "contents": [{"type": "text", "text": str(len(convos)), "size": "sm", "color": C["white"], "weight": "bold", "align": "center"}],
+                },
+            ],
+        },
+        "body": {
+            "type": "box", "layout": "vertical", "spacing": "sm", "paddingAll": "16px",
+            "contents": chat_rows,
+        },
+        "footer": {
+            "type": "box", "layout": "vertical", "paddingAll": "12px",
+            "backgroundColor": C["gray_light"], "cornerRadius": "0px",
+            "contents": [
+                {"type": "text", "text": "@Name message = reply to specific person", "size": "xxs", "color": C["gray"], "align": "center"},
+                {"type": "text", "text": "exit Name = end chat  |  /chats = refresh", "size": "xxs", "color": C["gray"], "align": "center", "margin": "xs"},
+            ],
+        },
+    })
+
+
+def build_person_picker_flex(category, contacts):
+    available = get_available(category, contacts)
+    if len(available) <= 1:
+        return None
+
+    color = {"counselor": C["blue"], "tutor": C["green"], "job": C["orange"], "scholarship": C["red"]}.get(category, C["blue"])
+    bg = {"counselor": C["blue_light"], "tutor": C["green_light"], "job": C["orange_light"], "scholarship": C["red_light"]}.get(category, C["blue_light"])
+    label = {"counselor": "Counselors", "tutor": "Tutors", "job": "Job Contacts", "scholarship": "Scholarship"}.get(category, "")
+
+    rows = []
+    for i, p in enumerate(available, 1):
+        subtitle = p.get("role", "")
+        if category == "tutor" and p.get("subjects"):
+            subtitle = ", ".join(p["subjects"])
+        elif category == "job" and p.get("company"):
+            subtitle = p["company"] + " - " + p.get("role", "")
+
+        rows.append({
+            "type": "box", "layout": "horizontal", "spacing": "lg",
+            "backgroundColor": C["white"], "cornerRadius": "12px",
+            "paddingAll": "14px", "borderWidth": "1px", "borderColor": "#E0E0E0",
+            "contents": [
+                {
+                    "type": "box", "layout": "vertical",
+                    "width": "36px", "height": "36px",
+                    "backgroundColor": color, "cornerRadius": "18px",
+                    "justifyContent": "center", "alignItems": "center",
+                    "contents": [{"type": "text", "text": str(i), "size": "md", "color": C["white"], "weight": "bold", "align": "center"}],
+                },
+                {
+                    "type": "box", "layout": "vertical", "flex": 1,
+                    "contents": [
+                        {"type": "text", "text": p["name"], "size": "sm", "weight": "bold", "color": C["text"]},
+                        {"type": "text", "text": subtitle, "size": "xs", "color": C["text_sub"], "margin": "xs", "wrap": True},
+                    ],
+                },
+            ],
+        })
+
+    return F("Choose " + label, {
+        "type": "bubble", "size": "mega",
+        "header": {
+            "type": "box", "layout": "vertical",
+            "backgroundColor": bg, "paddingAll": "18px",
+            "contents": [
+                {"type": "text", "text": "Available " + label, "size": "lg", "weight": "bold", "color": color},
+                {"type": "text", "text": "Reply with a number to connect", "size": "xs", "color": C["text_sub"], "margin": "sm"},
+            ],
+        },
+        "body": {"type": "box", "layout": "vertical", "spacing": "sm", "paddingAll": "16px", "contents": rows},
+        "footer": {
+            "type": "box", "layout": "vertical", "paddingAll": "12px",
+            "contents": [{"type": "text", "text": "Type 'exit' to go back", "size": "xs", "color": C["text_sub"], "align": "center"}],
+        },
+    })
+
 
 def build_scholarship_messages(contacts):
     info = contacts.get("scholarship", {})
-    flex_json = {
-        "type": "bubble",
-        "body": {
+    flex = F("Scholarship Support", {
+        "type": "bubble", "size": "mega",
+        "header": {
             "type": "box", "layout": "vertical",
+            "backgroundColor": C["red"], "paddingAll": "20px",
             "contents": [
-                {"type": "text", "text": "Scholarship Support", "size": "lg", "weight": "bold", "color": "#ea4335"},
-                {"type": "text", "text": info.get("description", ""), "size": "sm", "color": "#666666", "margin": "lg", "wrap": True},
-                {"type": "separator", "margin": "xl"},
-                {"type": "text", "text": "Contact: " + info.get("contact_name", "Ethan"), "size": "sm", "margin": "lg"},
+                {"type": "text", "text": "SCHOLARSHIP", "size": "xs", "color": "#FFFFFF80", "weight": "bold", "letterSpacing": "2px"},
+                {"type": "text", "text": "Support", "size": "xl", "color": C["white"], "weight": "bold", "margin": "xs"},
             ],
-            "paddingAll": "20px",
+        },
+        "body": {
+            "type": "box", "layout": "vertical", "paddingAll": "20px", "spacing": "lg",
+            "contents": [
+                {"type": "text", "text": info.get("description", ""), "size": "sm", "color": C["text_sub"], "wrap": True},
+                {"type": "separator", "color": "#E0E0E0"},
+                {"type": "text", "text": "Contact: " + info.get("contact_name", "Ethan"), "size": "sm", "color": C["text"]},
+            ],
         },
         "footer": {
-            "type": "box", "layout": "vertical", "spacing": "sm",
+            "type": "box", "layout": "vertical", "spacing": "sm", "paddingAll": "14px",
             "contents": [
-                {"type": "button", "action": {"type": "uri", "label": "Fill Scholarship Form", "uri": info.get("google_form_url", "https://docs.google.com/forms")}, "style": "primary", "color": "#ea4335"},
-                {"type": "button", "action": {"type": "uri", "label": "View Scholarship Document", "uri": info.get("google_doc_url", "https://docs.google.com/document")}, "style": "secondary"},
+                {"type": "button", "action": {"type": "uri", "label": "Fill Scholarship Form", "uri": info.get("google_form_url", "https://docs.google.com/forms")}, "style": "primary", "color": C["red"], "height": "sm"},
+                {"type": "button", "action": {"type": "uri", "label": "View Scholarship Doc", "uri": info.get("google_doc_url", "https://docs.google.com/document")}, "style": "secondary", "height": "sm"},
             ],
-            "paddingAll": "12px",
         },
-    }
-    msgs = [
-        text_msg("Here is the scholarship information. Fill in the form to get started!"),
-        FlexMessage(alt_text="Scholarship info", contents=FlexContainer.from_dict(flex_json)),
-    ]
+    })
+    msgs = [flex]
     if info.get("contact_user_id"):
-        msgs.append(text_msg("Want to talk to " + info.get("contact_name", "someone") + " about scholarships? Type 'connect' to start a conversation."))
+        msgs.append(T("Want to chat directly about scholarships? Type 'connect'"))
     return msgs
 
 
-# ─── Connection logic ────────────────────────────────────────────
+def build_sent_card(to_name):
+    return F("Sent", {
+        "type": "bubble", "size": "kilo",
+        "body": {
+            "type": "box", "layout": "horizontal", "paddingAll": "12px", "spacing": "sm",
+            "backgroundColor": C["green_light"], "cornerRadius": "8px",
+            "contents": [
+                {"type": "text", "text": "Sent to " + to_name, "size": "xs", "color": C["green"], "weight": "bold", "flex": 1, "gravity": "center"},
+            ],
+        },
+    })
+
+
+def build_ended_card(name):
+    return F("Chat ended", {
+        "type": "bubble", "size": "kilo",
+        "body": {
+            "type": "box", "layout": "vertical", "paddingAll": "16px",
+            "backgroundColor": C["gray_light"], "cornerRadius": "8px",
+            "contents": [
+                {"type": "text", "text": "Conversation with " + name + " ended", "size": "sm", "color": C["text_sub"], "align": "center", "wrap": True},
+                {"type": "text", "text": "Type 'hi' for the menu", "size": "xs", "color": C["gray"], "align": "center", "margin": "sm"},
+            ],
+        },
+    })
+
+
+def build_message_card(sender_name, message_text, color):
+    """Incoming message styled as a chat bubble."""
+    return F("Message from " + sender_name, {
+        "type": "bubble", "size": "mega",
+        "body": {
+            "type": "box", "layout": "vertical", "paddingAll": "16px", "spacing": "sm",
+            "contents": [
+                {
+                    "type": "box", "layout": "horizontal", "spacing": "sm",
+                    "contents": [
+                        {
+                            "type": "box", "layout": "vertical",
+                            "width": "32px", "height": "32px",
+                            "backgroundColor": color, "cornerRadius": "16px",
+                            "justifyContent": "center", "alignItems": "center",
+                            "contents": [{"type": "text", "text": sender_name[0].upper(), "size": "sm", "color": C["white"], "weight": "bold", "align": "center"}],
+                        },
+                        {"type": "text", "text": sender_name, "size": "sm", "weight": "bold", "color": C["text"], "gravity": "center"},
+                    ],
+                },
+                {
+                    "type": "box", "layout": "vertical",
+                    "backgroundColor": C["gray_light"], "cornerRadius": "12px",
+                    "paddingAll": "14px", "margin": "sm",
+                    "contents": [
+                        {"type": "text", "text": message_text, "size": "md", "color": C["text"], "wrap": True},
+                    ],
+                },
+            ],
+        },
+    })
+
+
+# ─── Connection logic ───────────────────────────────────────────
 
 def get_available(category, contacts):
-    if category == "counselor":
-        return [p for p in contacts.get("counselors", []) if p.get("user_id")]
-    elif category == "tutor":
-        return [p for p in contacts.get("tutors", []) if p.get("user_id")]
-    elif category == "job":
-        return [p for p in contacts.get("job_contacts", []) if p.get("user_id")]
+    if category == "counselor": return [p for p in contacts.get("counselors", []) if p.get("user_id")]
+    elif category == "tutor": return [p for p in contacts.get("tutors", []) if p.get("user_id")]
+    elif category == "job": return [p for p in contacts.get("job_contacts", []) if p.get("user_id")]
     elif category == "scholarship":
         uid = contacts.get("scholarship", {}).get("contact_user_id", "")
         name = contacts.get("scholarship", {}).get("contact_name", "")
@@ -204,215 +518,149 @@ def get_available(category, contacts):
 
 def connect_users(student_id, helper_id, helper_name, category, sessions):
     student_name = get_display_name(student_id)
-    sessions[student_id] = {"connected_to": helper_id, "connected_name": helper_name, "category": category, "started": int(time.time())}
-    sessions[helper_id] = {"connected_to": student_id, "connected_name": student_name, "category": "responding", "started": int(time.time())}
+    sessions[student_id] = {"type": "student", "connected_to": helper_id, "connected_name": helper_name, "category": category, "started": int(time.time())}
+    if helper_id not in sessions:
+        sessions[helper_id] = {"type": "helper", "conversations": {}, "replying_to": None}
+    elif sessions[helper_id].get("type") != "helper":
+        sessions[helper_id] = {"type": "helper", "conversations": {}, "replying_to": None}
+    sessions[helper_id]["conversations"][student_id] = {"name": student_name, "category": category, "started": int(time.time())}
+    if len(sessions[helper_id]["conversations"]) == 1:
+        sessions[helper_id]["replying_to"] = student_id
+    else:
+        sessions[helper_id]["replying_to"] = student_id
     save_sessions(sessions)
 
-    push(student_id, text_msg(
-        "You are now connected with " + helper_name + "!\n\n"
-        "Type your message and I will forward it to them.\n"
-        "Type 'exit' to end the conversation and return to the menu."
-    ))
+    push(student_id, build_connecting_card(helper_name, category))
+    conv_count = len(sessions[helper_id]["conversations"])
+    push(helper_id, build_incoming_card(student_name, category, conv_count))
 
-    label = {"counselor": "counseling/admissions", "tutor": "education/test support", "job": "job search", "scholarship": "scholarship"}.get(category, category)
-    push(helper_id, text_msg(
-        "New conversation!\n\n"
-        + student_name + " needs help with " + label + ".\n\n"
-        "Their messages will appear here. Just reply normally and I will forward your response.\n"
-        "Type 'exit' to end the conversation."
-    ))
-
-def disconnect_users(user_id, sessions):
-    session = sessions.get(user_id)
-    if not session:
-        return
-    other_id = session["connected_to"]
-    my_name = get_display_name(user_id)
-    try:
-        push(other_id, [text_msg("The conversation with " + my_name + " has ended."), text_msg("Type 'hi' to return to the menu.")])
-    except Exception:
-        pass
-    sessions.pop(user_id, None)
-    sessions.pop(other_id, None)
+def disconnect_student(student_id, sessions):
+    session = sessions.get(student_id)
+    if not session or session.get("type") != "student": return
+    helper_id = session["connected_to"]
+    student_name = get_display_name(student_id)
+    sessions.pop(student_id, None)
+    hs = sessions.get(helper_id)
+    if hs and hs.get("type") == "helper":
+        hs["conversations"].pop(student_id, None)
+        remaining = hs["conversations"]
+        if not remaining:
+            sessions.pop(helper_id, None)
+            try: push(helper_id, build_ended_card(student_name))
+            except: pass
+        else:
+            if hs.get("replying_to") == student_id:
+                next_id = list(remaining.keys())[-1]
+                hs["replying_to"] = next_id
+            try: push(helper_id, [build_ended_card(student_name), build_inbox(hs)])
+            except: pass
     save_sessions(sessions)
 
-def build_picker(category, contacts):
-    available = get_available(category, contacts)
-    if len(available) <= 1:
-        return None
-    lines = []
-    for i, p in enumerate(available, 1):
-        extra = ""
-        if category == "tutor":
-            extra = " (" + ", ".join(p.get("subjects", [])) + ")"
-        elif category == "job":
-            extra = " - " + p.get("company", "")
-        lines.append(str(i) + ". " + p["name"] + " - " + p.get("role", "") + extra)
-    return "Choose who to talk to:\n\n" + "\n".join(lines) + "\n\nReply with the number, or 'exit' to go back."
 
-
-# ─── Admin commands ──────────────────────────────────────────────
+# ─── Admin / Register ───────────────────────────────────────────
 
 ADMIN_HELP = """Admin Commands:
 
-REGISTER (helpers message bot first):
 /register counselor YourName
 /register tutor YourName
 /register job YourName
 /register scholarship
-
-ADD PEOPLE:
 /add counselor Name | Role | email
 /add tutor Name | Role | Subject1, Subject2
 /add job Name | Company | Role | Industry
-
-MANAGE:
-/remove counselor Name
-/remove tutor Name
-/remove job Name
+/remove counselor/tutor/job Name
 /set scholarship form <url>
 /set scholarship doc <url>
 /add admin <user_id>
 /list admins
-/list sessions
+/chats
 /my id"""
 
-def handle_admin(user_id, text):
+def handle_admin(uid, text):
     contacts = load_contacts()
-    sessions = load_sessions()
     admin_ids = contacts.get("admin_ids", [])
     if not admin_ids:
-        contacts["admin_ids"] = [user_id]
+        contacts["admin_ids"] = [uid]
         save_contacts(contacts)
-        admin_ids = [user_id]
-
+        admin_ids = [uid]
     tl = text.lower().strip()
-
-    if tl == "/my id":
-        return "Your LINE user ID:\n" + user_id
-
-    if tl.startswith("/register "):
-        return handle_register(user_id, text, contacts)
-
-    if user_id not in admin_ids:
-        return "No admin access.\nYour ID: " + user_id + "\nAsk admin to run: /add admin " + user_id
-
-    if tl in ["/admin", "/help"]:
-        return ADMIN_HELP
-    if tl == "/list admins":
-        return "Admins:\n" + "\n".join(admin_ids) if admin_ids else "None."
-    if tl == "/list sessions":
-        if not sessions:
-            return "No active conversations."
-        seen, lines = set(), []
-        for uid, s in sessions.items():
-            pair = tuple(sorted([uid, s["connected_to"]]))
-            if pair not in seen:
-                seen.add(pair)
-                lines.append(s.get("connected_name", "?") + " <-> " + get_display_name(uid))
-        return "Active:\n" + "\n".join(lines)
-
+    if tl == "/my id": return "Your LINE user ID:\n" + uid
+    if tl.startswith("/register "): return handle_register(uid, text, contacts)
+    if tl == "/chats":
+        sessions = load_sessions()
+        hs = sessions.get(uid)
+        if hs and hs.get("type") == "helper": return None  # handled separately with flex
+        return "You have no active conversations."
+    if uid not in admin_ids: return "No admin access.\nYour ID: " + uid
+    if tl in ["/admin", "/help"]: return ADMIN_HELP
+    if tl == "/list admins": return "Admins:\n" + "\n".join(admin_ids)
     if tl.startswith("/add admin "):
         nid = text[11:].strip()
-        if nid not in contacts["admin_ids"]:
-            contacts["admin_ids"].append(nid)
-            save_contacts(contacts)
+        if nid not in contacts["admin_ids"]: contacts["admin_ids"].append(nid)
+        save_contacts(contacts)
         return "Added admin: " + nid
-
     if tl.startswith("/add counselor "):
         parts = text[15:].split("|")
-        if len(parts) < 3:
-            return "Format: /add counselor Name | Role | Email"
+        if len(parts) < 3: return "Format: /add counselor Name | Role | Email"
         e = {"name": parts[0].strip(), "role": parts[1].strip(), "email": parts[2].strip(), "user_id": ""}
-        contacts["counselors"].append(e)
-        save_contacts(contacts)
-        return "Added: " + e["name"] + "\nThey must message bot then: /register counselor " + e["name"]
-
+        contacts["counselors"].append(e); save_contacts(contacts)
+        return "Added: " + e["name"] + "\nThey must: /register counselor " + e["name"]
     if tl.startswith("/add tutor "):
         parts = text[11:].split("|")
-        if len(parts) < 3:
-            return "Format: /add tutor Name | Role | Subjects"
+        if len(parts) < 3: return "Format: /add tutor Name | Role | Subjects"
         e = {"name": parts[0].strip(), "role": parts[1].strip(), "user_id": "", "subjects": [s.strip() for s in parts[2].split(",")]}
-        contacts["tutors"].append(e)
-        save_contacts(contacts)
-        return "Added: " + e["name"] + "\nThey must message bot then: /register tutor " + e["name"]
-
+        contacts["tutors"].append(e); save_contacts(contacts)
+        return "Added: " + e["name"] + "\nThey must: /register tutor " + e["name"]
     if tl.startswith("/add job "):
         parts = text[9:].split("|")
-        if len(parts) < 4:
-            return "Format: /add job Name | Company | Role | Industry"
+        if len(parts) < 4: return "Format: /add job Name | Company | Role | Industry"
         e = {"name": parts[0].strip(), "company": parts[1].strip(), "role": parts[2].strip(), "user_id": "", "industry": parts[3].strip()}
-        contacts["job_contacts"].append(e)
-        save_contacts(contacts)
-        return "Added: " + e["name"] + "\nThey must message bot then: /register job " + e["name"]
-
+        contacts["job_contacts"].append(e); save_contacts(contacts)
+        return "Added: " + e["name"] + "\nThey must: /register job " + e["name"]
     if tl.startswith("/remove counselor "):
-        n = text[18:].strip()
-        b = len(contacts["counselors"])
+        n = text[18:].strip(); b = len(contacts["counselors"])
         contacts["counselors"] = [c for c in contacts["counselors"] if c["name"].lower() != n.lower()]
-        save_contacts(contacts)
-        return ("Removed: " + n) if len(contacts["counselors"]) < b else ("Not found: " + n)
-
+        save_contacts(contacts); return ("Removed: " + n) if len(contacts["counselors"]) < b else ("Not found: " + n)
     if tl.startswith("/remove tutor "):
-        n = text[14:].strip()
-        b = len(contacts["tutors"])
+        n = text[14:].strip(); b = len(contacts["tutors"])
         contacts["tutors"] = [t for t in contacts["tutors"] if t["name"].lower() != n.lower()]
-        save_contacts(contacts)
-        return ("Removed: " + n) if len(contacts["tutors"]) < b else ("Not found: " + n)
-
+        save_contacts(contacts); return ("Removed: " + n) if len(contacts["tutors"]) < b else ("Not found: " + n)
     if tl.startswith("/remove job "):
-        n = text[12:].strip()
-        b = len(contacts["job_contacts"])
+        n = text[12:].strip(); b = len(contacts["job_contacts"])
         contacts["job_contacts"] = [j for j in contacts["job_contacts"] if j["name"].lower() != n.lower()]
-        save_contacts(contacts)
-        return ("Removed: " + n) if len(contacts["job_contacts"]) < b else ("Not found: " + n)
-
+        save_contacts(contacts); return ("Removed: " + n) if len(contacts["job_contacts"]) < b else ("Not found: " + n)
     if tl.startswith("/set scholarship form "):
-        contacts["scholarship"]["google_form_url"] = text[22:].strip()
-        save_contacts(contacts)
-        return "Form URL updated."
-
+        contacts["scholarship"]["google_form_url"] = text[22:].strip(); save_contacts(contacts); return "Updated."
     if tl.startswith("/set scholarship doc "):
-        contacts["scholarship"]["google_doc_url"] = text[21:].strip()
-        save_contacts(contacts)
-        return "Doc URL updated."
+        contacts["scholarship"]["google_doc_url"] = text[21:].strip(); save_contacts(contacts); return "Updated."
+    return "Unknown command. /admin for help."
 
-    return "Unknown command. Type /admin for help."
-
-def handle_register(user_id, text, contacts):
+def handle_register(uid, text, contacts):
     tl = text.lower().strip()
     if tl.startswith("/register counselor "):
         name = text[20:].strip()
         for c in contacts["counselors"]:
             if c["name"].lower() == name.lower():
-                c["user_id"] = user_id
-                save_contacts(contacts)
-                return "Registered! You (" + name + ") will now receive forwarded student messages for counseling."
-        return "No counselor named '" + name + "'. Ask admin to add you first."
-
+                c["user_id"] = uid; save_contacts(contacts)
+                return "Registered as counselor: " + name
+        return "Not found: '" + name + "'"
     if tl.startswith("/register tutor "):
         name = text[16:].strip()
         for t in contacts["tutors"]:
             if t["name"].lower() == name.lower():
-                t["user_id"] = user_id
-                save_contacts(contacts)
-                return "Registered! You (" + name + ") will now receive forwarded student messages for tutoring."
-        return "No tutor named '" + name + "'. Ask admin to add you first."
-
+                t["user_id"] = uid; save_contacts(contacts)
+                return "Registered as tutor: " + name
+        return "Not found: '" + name + "'"
     if tl.startswith("/register job "):
         name = text[14:].strip()
         for j in contacts["job_contacts"]:
             if j["name"].lower() == name.lower():
-                j["user_id"] = user_id
-                save_contacts(contacts)
-                return "Registered! You (" + name + ") will now receive forwarded student messages for job help."
-        return "No job contact named '" + name + "'. Ask admin to add you first."
-
+                j["user_id"] = uid; save_contacts(contacts)
+                return "Registered as job contact: " + name
+        return "Not found: '" + name + "'"
     if tl == "/register scholarship":
-        contacts["scholarship"]["contact_user_id"] = user_id
-        save_contacts(contacts)
+        contacts["scholarship"]["contact_user_id"] = uid; save_contacts(contacts)
         return "Registered as scholarship contact!"
-
     return "Usage: /register counselor YourName"
 
 
@@ -422,10 +670,8 @@ def handle_register(user_id, text, contacts):
 def callback():
     sig = request.headers.get("X-Line-Signature", "")
     body = request.get_data(as_text=True)
-    try:
-        webhook_handler.handle(body, sig)
-    except InvalidSignatureError:
-        abort(400)
+    try: webhook_handler.handle(body, sig)
+    except InvalidSignatureError: abort(400)
     return "OK"
 
 @webhook_handler.add(MessageEvent, message=TextMessageContent)
@@ -433,120 +679,162 @@ def handle_message(event):
     uid = event.source.user_id
     text = event.message.text.strip()
     tl = text.lower()
-
     sessions = load_sessions()
     contacts = load_contacts()
     pending = load_pending()
 
     # 1. Commands
     if text.startswith("/"):
-        if uid in sessions and tl != "/my id":
-            disconnect_users(uid, sessions)
+        if tl == "/chats":
+            hs = sessions.get(uid)
+            if hs and hs.get("type") == "helper":
+                reply(event.reply_token, build_inbox(hs))
+                return
         r = handle_admin(uid, text)
-        reply(event.reply_token, text_msg(r))
+        if r: reply(event.reply_token, T(r))
         return
 
-    # 2. Active conversation — relay
-    if uid in sessions:
+    # 2. Student relay
+    us = sessions.get(uid)
+    if us and us.get("type") == "student":
         if tl == "exit":
-            other = sessions[uid]["connected_name"]
-            disconnect_users(uid, sessions)
-            reply(event.reply_token, [text_msg("Conversation with " + other + " ended."), text_msg("Type 'hi' to return to the menu.")])
+            name = us["connected_name"]
+            disconnect_student(uid, sessions)
+            reply(event.reply_token, build_ended_card(name))
             return
-
-        other_id = sessions[uid]["connected_to"]
-        sender = get_display_name(uid)
+        helper_id = us["connected_to"]
+        student_name = get_display_name(uid)
+        cat = us.get("category", "tutor")
+        color = {"counselor": C["blue"], "tutor": C["green"], "job": C["orange"], "scholarship": C["red"]}.get(cat, C["blue"])
         try:
-            push(other_id, text_msg(sender + ":\n" + text))
-            reply(event.reply_token, text_msg("(sent)"))
+            hs = sessions.get(helper_id)
+            if hs and hs.get("type") == "helper":
+                hs["replying_to"] = uid; save_sessions(sessions)
+            push(helper_id, build_message_card(student_name, text, color))
+            reply(event.reply_token, build_sent_card(us["connected_name"]))
         except Exception as e:
-            reply(event.reply_token, text_msg("Could not deliver. Error: " + str(e)[:100]))
+            reply(event.reply_token, T("Could not deliver: " + str(e)[:80]))
         return
 
-    # 3. Picking from list
+    # 3. Helper relay
+    if us and us.get("type") == "helper":
+        convos = us.get("conversations", {})
+        if tl.startswith("exit "):
+            target_name = text[5:].strip()
+            for sid, info in convos.items():
+                if info["name"].lower() == target_name.lower():
+                    try: push(sid, build_ended_card(get_display_name(uid)))
+                    except: pass
+                    disconnect_student(sid, sessions)
+                    reply(event.reply_token, build_ended_card(target_name))
+                    return
+            reply(event.reply_token, T("No chat with '" + target_name + "'. Type /chats"))
+            return
+        if tl == "exit":
+            if len(convos) == 1:
+                sid = list(convos.keys())[0]; sname = convos[sid]["name"]
+                try: push(sid, build_ended_card(get_display_name(uid)))
+                except: pass
+                disconnect_student(sid, sessions)
+                reply(event.reply_token, build_ended_card(sname))
+                return
+            reply(event.reply_token, T("Multiple chats. Use: exit Name\nOr /chats to see all."))
+            return
+        if text.startswith("@"):
+            space = text.find(" ", 1)
+            if space > 0:
+                tname = text[1:space].strip(); msg = text[space+1:].strip()
+                for sid, info in convos.items():
+                    if info["name"].lower() == tname.lower() and msg:
+                        hname = get_display_name(uid)
+                        cat = info.get("category", "tutor")
+                        color = {"counselor": C["blue"], "tutor": C["green"], "job": C["orange"], "scholarship": C["red"]}.get(cat, C["blue"])
+                        try:
+                            push(sid, build_message_card(hname, msg, color))
+                            us["replying_to"] = sid; save_sessions(sessions)
+                            reply(event.reply_token, build_sent_card(tname))
+                        except Exception as e:
+                            reply(event.reply_token, T("Error: " + str(e)[:80]))
+                        return
+                reply(event.reply_token, T("No chat with that name. /chats to see all."))
+                return
+        if tl in ["hi", "hello", "menu", "help", "hey", "back"]:
+            reply(event.reply_token, build_inbox(us))
+            return
+        rt = us.get("replying_to")
+        if rt and rt in convos:
+            tname = convos[rt]["name"]
+            hname = get_display_name(uid)
+            cat = convos[rt].get("category", "tutor")
+            color = {"counselor": C["blue"], "tutor": C["green"], "job": C["orange"], "scholarship": C["red"]}.get(cat, C["blue"])
+            try:
+                push(rt, build_message_card(hname, text, color))
+                reply(event.reply_token, build_sent_card(tname))
+            except Exception as e:
+                reply(event.reply_token, T("Error: " + str(e)[:80]))
+            return
+        reply(event.reply_token, [T("Not sure who to reply to."), build_inbox(us)])
+        return
+
+    # 4. Picking
     if uid in pending:
         cat = pending[uid]["category"]
         avail = get_available(cat, contacts)
         if tl == "exit":
-            del pending[uid]
-            save_pending(pending)
+            del pending[uid]; save_pending(pending)
             reply(event.reply_token, build_main_menu())
             return
         try:
             idx = int(text) - 1
             if 0 <= idx < len(avail):
-                p = avail[idx]
-                if p["user_id"] in sessions:
-                    reply(event.reply_token, text_msg(p["name"] + " is busy. Try again shortly."))
-                    return
-                del pending[uid]
-                save_pending(pending)
+                p = avail[idx]; del pending[uid]; save_pending(pending)
                 connect_users(uid, p["user_id"], p["name"], cat, sessions)
-                reply(event.reply_token, text_msg("Connecting you to " + p["name"] + "..."))
+                reply(event.reply_token, T("Connecting..."))
                 return
-            reply(event.reply_token, text_msg("Pick a valid number or type 'exit'."))
+            reply(event.reply_token, T("Pick a valid number or 'exit'."))
             return
         except ValueError:
-            reply(event.reply_token, text_msg("Reply with a number or type 'exit'."))
+            reply(event.reply_token, T("Reply with a number or 'exit'."))
             return
 
-    # 4. Menu
+    # 5. Menu
     if tl in ["hi", "hello", "menu", "start", "help", "hey", "back"]:
         reply(event.reply_token, build_main_menu())
         return
 
-    # 5. Options
-    def try_connect(category):
-        avail = get_available(category, contacts)
+    # 6. Options
+    def try_connect(cat):
+        avail = get_available(cat, contacts)
         if not avail:
-            reply(event.reply_token, text_msg("No one available for this yet. Helpers need to register first.\nType 'hi' for menu."))
+            reply(event.reply_token, T("No one available yet. Type 'hi' for menu."))
             return
         if len(avail) == 1:
-            p = avail[0]
-            if p["user_id"] in sessions:
-                reply(event.reply_token, text_msg(p["name"] + " is busy. Try again shortly."))
-                return
-            connect_users(uid, p["user_id"], p["name"], category, sessions)
-            reply(event.reply_token, text_msg("Connecting you to " + p["name"] + "..."))
+            connect_users(uid, avail[0]["user_id"], avail[0]["name"], cat, sessions)
+            reply(event.reply_token, T("Connecting..."))
             return
-        picker = build_picker(category, contacts)
+        picker = build_person_picker_flex(cat, contacts)
         if picker:
-            pending[uid] = {"category": category}
-            save_pending(pending)
-            reply(event.reply_token, text_msg(picker))
+            pending[uid] = {"category": cat}; save_pending(pending)
+            reply(event.reply_token, picker)
 
-    if text in ["1"] or "counselor" in tl or "admission" in tl:
-        try_connect("counselor")
-        return
-    if text in ["2"] or "tutor" in tl or "education" in tl or "test" in tl or "study" in tl:
-        try_connect("tutor")
-        return
-    if text in ["3"] or "scholarship" in tl:
-        reply(event.reply_token, build_scholarship_messages(contacts))
-        return
+    if text in ["1"] or "counselor" in tl or "admission" in tl: try_connect("counselor"); return
+    if text in ["2"] or "tutor" in tl or "education" in tl or "test" in tl or "study" in tl: try_connect("tutor"); return
+    if text in ["3"] or "scholarship" in tl: reply(event.reply_token, build_scholarship_messages(contacts)); return
     if tl == "connect":
         si = contacts.get("scholarship", {})
         sid, sn = si.get("contact_user_id", ""), si.get("contact_name", "")
         if sid:
-            if sid in sessions:
-                reply(event.reply_token, text_msg(sn + " is busy. Try shortly."))
-                return
             connect_users(uid, sid, sn, "scholarship", sessions)
-            reply(event.reply_token, text_msg("Connecting you to " + sn + "..."))
-        else:
-            reply(event.reply_token, text_msg("Scholarship contact not registered yet. Please fill in the form!"))
+            reply(event.reply_token, T("Connecting..."))
+        else: reply(event.reply_token, T("Scholarship contact not registered yet."))
         return
-    if text in ["4"] or "job" in tl or "work" in tl or "career" in tl:
-        try_connect("job")
-        return
+    if text in ["4"] or "job" in tl or "work" in tl or "career" in tl: try_connect("job"); return
 
-    # Default
-    reply(event.reply_token, [text_msg("Welcome! Let me help you find the right support."), build_main_menu()])
+    reply(event.reply_token, [T("Welcome!"), build_main_menu()])
 
 @app.route("/", methods=["GET"])
 def health():
     return "Student Support Hub Bot is running!"
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))

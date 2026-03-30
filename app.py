@@ -1,95 +1,78 @@
 """
 LINE Chatbot — Student Support Hub v3
-Relay system: students talk to counselors/tutors/job contacts THROUGH the bot.
-The bot forwards messages back and forth like a bridge.
+Relay system using line-bot-sdk 3.5.1 + Python 3.12
 """
 
 import os
 import json
 import time
 from flask import Flask, request, abort
-from linebot import LineBotApi, WebhookHandler
-from linebot.exceptions import InvalidSignatureError
-from linebot.models import (
-    MessageEvent,
+
+from linebot.v3 import WebhookHandler
+from linebot.v3.exceptions import InvalidSignatureError
+from linebot.v3.webhooks import MessageEvent, TextMessageContent
+from linebot.v3.messaging import (
+    Configuration,
+    ApiClient,
+    MessagingApi,
+    ReplyMessageRequest,
+    PushMessageRequest,
     TextMessage,
-    TextSendMessage,
-    FlexSendMessage,
+    FlexMessage,
+    FlexContainer,
 )
 
 app = Flask(__name__)
 
-# ─── Configuration ───────────────────────────────────────────────
 CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET", "YOUR_CHANNEL_SECRET")
 CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "YOUR_ACCESS_TOKEN")
 
-line_bot_api = LineBotApi(CHANNEL_ACCESS_TOKEN)
-handler = WebhookHandler(CHANNEL_SECRET)
+configuration = Configuration(access_token=CHANNEL_ACCESS_TOKEN)
+webhook_handler = WebhookHandler(CHANNEL_SECRET)
 
-# ─── Data Files ──────────────────────────────────────────────────
 DATA_DIR = os.path.dirname(__file__)
 CONTACTS_FILE = os.path.join(DATA_DIR, "contacts.json")
 SESSIONS_FILE = os.path.join(DATA_DIR, "sessions.json")
-
-# ─── Sessions: tracks who is talking to whom ─────────────────────
-# Structure:
-# {
-#   "student_user_id": {
-#     "connected_to": "counselor_user_id",
-#     "connected_name": "Khun Somporn",
-#     "category": "counselor",
-#     "started": timestamp
-#   },
-#   "counselor_user_id": {
-#     "connected_to": "student_user_id",
-#     "connected_name": "Student",
-#     "category": "responding",
-#     "started": timestamp
-#   }
-# }
+PENDING_FILE = os.path.join(DATA_DIR, "pending.json")
 
 
-def load_sessions():
-    if os.path.exists(SESSIONS_FILE):
-        with open(SESSIONS_FILE, "r", encoding="utf-8") as f:
+# ─── File helpers ────────────────────────────────────────────────
+
+def _load(path, default):
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
-    return {}
+    return default
 
-
-def save_sessions(sessions):
-    with open(SESSIONS_FILE, "w", encoding="utf-8") as f:
-        json.dump(sessions, f, indent=2, ensure_ascii=False)
-
+def _save(path, data):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
 
 def load_contacts():
-    if os.path.exists(CONTACTS_FILE):
-        with open(CONTACTS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    save_contacts(DEFAULT_CONTACTS)
-    return DEFAULT_CONTACTS
-
+    return _load(CONTACTS_FILE, DEFAULT_CONTACTS)
 
 def save_contacts(data):
-    with open(CONTACTS_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
+    _save(CONTACTS_FILE, data)
+
+def load_sessions():
+    return _load(SESSIONS_FILE, {})
+
+def save_sessions(data):
+    _save(SESSIONS_FILE, data)
+
+def load_pending():
+    return _load(PENDING_FILE, {})
+
+def save_pending(data):
+    _save(PENDING_FILE, data)
 
 
 DEFAULT_CONTACTS = {
     "counselors": [
-        {
-            "name": "Khun Somporn",
-            "role": "Admissions & Academic Guidance",
-            "user_id": "",
-            "email": "somporn@school.ac.th",
-        }
+        {"name": "Khun Somporn", "role": "Admissions & Academic Guidance", "user_id": "", "email": "somporn@school.ac.th"}
     ],
     "tutors": [
-        {
-            "name": "Ethan",
-            "role": "Team Lead - General Support",
-            "user_id": "",
-            "subjects": ["Math", "Science", "English"],
-        }
+        {"name": "Ethan", "role": "Team Lead - General Support", "user_id": "", "subjects": ["Math", "Science", "English"]}
     ],
     "scholarship": {
         "contact_name": "Ethan",
@@ -99,13 +82,7 @@ DEFAULT_CONTACTS = {
         "description": "We offer guidance on scholarships for students at risk of dropping out. Fill in the form and we will match you with opportunities.",
     },
     "job_contacts": [
-        {
-            "name": "Job Fair Contact",
-            "company": "Company Name",
-            "role": "HR / Recruiter",
-            "user_id": "",
-            "industry": "Technology",
-        }
+        {"name": "Job Fair Contact", "company": "Company Name", "role": "HR / Recruiter", "user_id": "", "industry": "Technology"}
     ],
     "admin_ids": [],
 }
@@ -114,112 +91,76 @@ if not os.path.exists(CONTACTS_FILE):
     save_contacts(DEFAULT_CONTACTS)
 
 
-# ─── Helper: get user display name ──────────────────────────────
+# ─── Messaging helpers ──────────────────────────────────────────
+
+def get_api():
+    return MessagingApi(ApiClient(configuration))
+
+def reply(token, messages):
+    if not isinstance(messages, list):
+        messages = [messages]
+    get_api().reply_message(ReplyMessageRequest(reply_token=token, messages=messages))
+
+def push(user_id, messages):
+    if not isinstance(messages, list):
+        messages = [messages]
+    get_api().push_message(PushMessageRequest(to=user_id, messages=messages))
+
+def text_msg(t):
+    return TextMessage(text=t)
 
 def get_display_name(user_id):
     try:
-        profile = line_bot_api.get_profile(user_id)
+        profile = get_api().get_profile(user_id)
         return profile.display_name
     except Exception:
         return "Someone"
 
 
-# ─── Flex Message Builders ───────────────────────────────────────
+# ─── Flex builders ───────────────────────────────────────────────
 
 def build_main_menu():
     flex_json = {
         "type": "bubble",
         "hero": {
-            "type": "box",
-            "layout": "vertical",
+            "type": "box", "layout": "vertical",
             "contents": [
                 {"type": "text", "text": "Student Support Hub", "weight": "bold", "size": "xl", "color": "#1a73e8", "align": "center"},
                 {"type": "text", "text": "How can we help you today?", "size": "sm", "color": "#666666", "align": "center", "margin": "md"},
             ],
-            "paddingAll": "20px",
-            "backgroundColor": "#f0f6ff",
+            "paddingAll": "20px", "backgroundColor": "#f0f6ff",
         },
         "body": {
-            "type": "box",
-            "layout": "vertical",
-            "spacing": "md",
+            "type": "box", "layout": "vertical", "spacing": "md",
             "contents": [
-                _menu_button("1 - Talk to a Counselor", "#1a73e8"),
-                _menu_button("2 - Get Education & Test Help", "#34a853"),
-                _menu_button("3 - Scholarship Information", "#ea4335"),
-                _menu_button("4 - Job Search Help", "#fbbc04"),
+                _btn("1 - Talk to a Counselor", "#1a73e8"),
+                _btn("2 - Get Education & Test Help", "#34a853"),
+                _btn("3 - Scholarship Information", "#ea4335"),
+                _btn("4 - Job Search Help", "#fbbc04"),
             ],
             "paddingAll": "16px",
         },
         "footer": {
-            "type": "box",
-            "layout": "vertical",
-            "contents": [
-                {"type": "text", "text": "Reply 1-4 to connect with someone who can help", "size": "xs", "color": "#999999", "align": "center", "wrap": True},
-            ],
+            "type": "box", "layout": "vertical",
+            "contents": [{"type": "text", "text": "Reply 1-4 to connect with someone who can help", "size": "xs", "color": "#999999", "align": "center", "wrap": True}],
             "paddingAll": "12px",
         },
     }
-    return FlexSendMessage(alt_text="Student Support Hub - Reply 1-4", contents=flex_json)
+    return FlexMessage(alt_text="Student Support Hub - Reply 1-4", contents=FlexContainer.from_dict(flex_json))
 
-
-def _menu_button(label, color):
+def _btn(label, color):
     return {
-        "type": "box",
-        "layout": "horizontal",
+        "type": "box", "layout": "horizontal",
         "contents": [{"type": "text", "text": label, "size": "md", "color": "#333333", "flex": 1, "gravity": "center"}],
-        "paddingAll": "14px",
-        "backgroundColor": "#ffffff",
-        "cornerRadius": "8px",
-        "borderWidth": "1px",
-        "borderColor": color,
+        "paddingAll": "14px", "backgroundColor": "#ffffff", "cornerRadius": "8px", "borderWidth": "1px", "borderColor": color,
     }
 
-
-def build_person_picker(category, contacts):
-    """Build a list of available people the student can connect with."""
-    if category == "counselor":
-        people = contacts.get("counselors", [])
-        color = "#1a73e8"
-        label = "Counselor"
-    elif category == "tutor":
-        people = contacts.get("tutors", [])
-        color = "#34a853"
-        label = "Tutor"
-    elif category == "job":
-        people = contacts.get("job_contacts", [])
-        color = "#fbbc04"
-        label = "Job Contact"
-    else:
-        return None
-
-    available = [p for p in people if p.get("user_id")]
-    if not available:
-        return None
-
-    if len(available) == 1:
-        return None  # Will auto-connect
-
-    lines = []
-    for i, p in enumerate(available, 1):
-        extra = ""
-        if category == "tutor":
-            extra = " (" + ", ".join(p.get("subjects", [])) + ")"
-        elif category == "job":
-            extra = " - " + p.get("company", "")
-        lines.append(str(i) + ". " + p["name"] + " - " + p.get("role", "") + extra)
-
-    text = "Choose who to talk to:\n\n" + "\n".join(lines) + "\n\nReply with the number."
-    return text
-
-
-def build_scholarship_response(contacts):
+def build_scholarship_messages(contacts):
     info = contacts.get("scholarship", {})
     flex_json = {
         "type": "bubble",
         "body": {
-            "type": "box",
-            "layout": "vertical",
+            "type": "box", "layout": "vertical",
             "contents": [
                 {"type": "text", "text": "Scholarship Support", "size": "lg", "weight": "bold", "color": "#ea4335"},
                 {"type": "text", "text": info.get("description", ""), "size": "sm", "color": "#666666", "margin": "lg", "wrap": True},
@@ -229,121 +170,26 @@ def build_scholarship_response(contacts):
             "paddingAll": "20px",
         },
         "footer": {
-            "type": "box",
-            "layout": "vertical",
-            "spacing": "sm",
+            "type": "box", "layout": "vertical", "spacing": "sm",
             "contents": [
-                {
-                    "type": "button",
-                    "action": {"type": "uri", "label": "Fill Scholarship Form", "uri": info.get("google_form_url", "https://docs.google.com/forms")},
-                    "style": "primary",
-                    "color": "#ea4335",
-                },
-                {
-                    "type": "button",
-                    "action": {"type": "uri", "label": "View Scholarship Document", "uri": info.get("google_doc_url", "https://docs.google.com/document")},
-                    "style": "secondary",
-                },
+                {"type": "button", "action": {"type": "uri", "label": "Fill Scholarship Form", "uri": info.get("google_form_url", "https://docs.google.com/forms")}, "style": "primary", "color": "#ea4335"},
+                {"type": "button", "action": {"type": "uri", "label": "View Scholarship Document", "uri": info.get("google_doc_url", "https://docs.google.com/document")}, "style": "secondary"},
             ],
             "paddingAll": "12px",
         },
     }
-
-    messages = [
-        TextSendMessage(text="Here is the scholarship information. Fill in the form to get started!"),
-        FlexSendMessage(alt_text="Scholarship info", contents=flex_json),
+    msgs = [
+        text_msg("Here is the scholarship information. Fill in the form to get started!"),
+        FlexMessage(alt_text="Scholarship info", contents=FlexContainer.from_dict(flex_json)),
     ]
-
-    # Also offer to connect with scholarship contact
-    contact_id = info.get("contact_user_id", "")
-    if contact_id:
-        messages.append(TextSendMessage(text="Want to talk to " + info.get("contact_name", "someone") + " about scholarships? Type 'connect' to start a conversation."))
-
-    return messages
+    if info.get("contact_user_id"):
+        msgs.append(text_msg("Want to talk to " + info.get("contact_name", "someone") + " about scholarships? Type 'connect' to start a conversation."))
+    return msgs
 
 
-# ─── Connection Logic ────────────────────────────────────────────
+# ─── Connection logic ────────────────────────────────────────────
 
-def connect_users(student_id, helper_id, helper_name, category, sessions):
-    """Create a two-way connection between student and helper."""
-    student_name = get_display_name(student_id)
-
-    sessions[student_id] = {
-        "connected_to": helper_id,
-        "connected_name": helper_name,
-        "category": category,
-        "started": int(time.time()),
-    }
-    sessions[helper_id] = {
-        "connected_to": student_id,
-        "connected_name": student_name,
-        "category": "responding",
-        "started": int(time.time()),
-    }
-    save_sessions(sessions)
-
-    # Notify the student
-    line_bot_api.push_message(
-        student_id,
-        TextSendMessage(
-            text="You are now connected with " + helper_name + "!\n\n"
-            "Type your message and I will forward it to them.\n"
-            "Type 'exit' to end the conversation and return to the menu."
-        ),
-    )
-
-    # Notify the helper
-    category_label = category
-    if category == "counselor":
-        category_label = "counseling/admissions"
-    elif category == "tutor":
-        category_label = "education/test support"
-    elif category == "job":
-        category_label = "job search"
-    elif category == "scholarship":
-        category_label = "scholarship"
-
-    line_bot_api.push_message(
-        helper_id,
-        TextSendMessage(
-            text="New conversation!\n\n"
-            + student_name + " needs help with " + category_label + ".\n\n"
-            "Their messages will appear here. Just reply normally and I will forward your response.\n"
-            "Type 'exit' to end the conversation."
-        ),
-    )
-
-
-def disconnect_users(user_id, sessions):
-    """End a conversation between two users."""
-    session = sessions.get(user_id)
-    if not session:
-        return
-
-    other_id = session["connected_to"]
-    other_name = session["connected_name"]
-    my_name = get_display_name(user_id)
-
-    # Notify the other person
-    try:
-        line_bot_api.push_message(
-            other_id,
-            [
-                TextSendMessage(text="The conversation with " + my_name + " has ended."),
-                TextSendMessage(text="Type 'hi' to return to the menu."),
-            ],
-        )
-    except Exception:
-        pass
-
-    # Remove both sessions
-    sessions.pop(user_id, None)
-    sessions.pop(other_id, None)
-    save_sessions(sessions)
-
-
-def get_available_people(category, contacts):
-    """Get list of people with registered user_ids for a category."""
+def get_available(category, contacts):
     if category == "counselor":
         return [p for p in contacts.get("counselors", []) if p.get("user_id")]
     elif category == "tutor":
@@ -353,23 +199,67 @@ def get_available_people(category, contacts):
     elif category == "scholarship":
         uid = contacts.get("scholarship", {}).get("contact_user_id", "")
         name = contacts.get("scholarship", {}).get("contact_name", "")
-        if uid:
-            return [{"name": name, "user_id": uid}]
-        return []
+        return [{"name": name, "user_id": uid}] if uid else []
     return []
 
+def connect_users(student_id, helper_id, helper_name, category, sessions):
+    student_name = get_display_name(student_id)
+    sessions[student_id] = {"connected_to": helper_id, "connected_name": helper_name, "category": category, "started": int(time.time())}
+    sessions[helper_id] = {"connected_to": student_id, "connected_name": student_name, "category": "responding", "started": int(time.time())}
+    save_sessions(sessions)
 
-# ─── Admin Commands ──────────────────────────────────────────────
+    push(student_id, text_msg(
+        "You are now connected with " + helper_name + "!\n\n"
+        "Type your message and I will forward it to them.\n"
+        "Type 'exit' to end the conversation and return to the menu."
+    ))
+
+    label = {"counselor": "counseling/admissions", "tutor": "education/test support", "job": "job search", "scholarship": "scholarship"}.get(category, category)
+    push(helper_id, text_msg(
+        "New conversation!\n\n"
+        + student_name + " needs help with " + label + ".\n\n"
+        "Their messages will appear here. Just reply normally and I will forward your response.\n"
+        "Type 'exit' to end the conversation."
+    ))
+
+def disconnect_users(user_id, sessions):
+    session = sessions.get(user_id)
+    if not session:
+        return
+    other_id = session["connected_to"]
+    my_name = get_display_name(user_id)
+    try:
+        push(other_id, [text_msg("The conversation with " + my_name + " has ended."), text_msg("Type 'hi' to return to the menu.")])
+    except Exception:
+        pass
+    sessions.pop(user_id, None)
+    sessions.pop(other_id, None)
+    save_sessions(sessions)
+
+def build_picker(category, contacts):
+    available = get_available(category, contacts)
+    if len(available) <= 1:
+        return None
+    lines = []
+    for i, p in enumerate(available, 1):
+        extra = ""
+        if category == "tutor":
+            extra = " (" + ", ".join(p.get("subjects", [])) + ")"
+        elif category == "job":
+            extra = " - " + p.get("company", "")
+        lines.append(str(i) + ". " + p["name"] + " - " + p.get("role", "") + extra)
+    return "Choose who to talk to:\n\n" + "\n".join(lines) + "\n\nReply with the number, or 'exit' to go back."
+
+
+# ─── Admin commands ──────────────────────────────────────────────
 
 ADMIN_HELP = """Admin Commands:
 
-REGISTER (helpers must message the bot first):
-/register counselor <name>
-/register tutor <name>
-/register job <name>
+REGISTER (helpers message bot first):
+/register counselor YourName
+/register tutor YourName
+/register job YourName
 /register scholarship
-
-This links YOUR LINE account as that person. The helper must have messaged the bot at least once.
 
 ADD PEOPLE:
 /add counselor Name | Role | email
@@ -385,384 +275,277 @@ MANAGE:
 /add admin <user_id>
 /list admins
 /list sessions
-/my id
+/my id"""
 
-Example workflow:
-1. /add counselor Khun Nida | University Admissions | nida@ris.ac.th
-2. Tell Khun Nida to add the bot as a friend and send 'hi'
-3. Khun Nida sends: /register counselor Khun Nida
-4. Now students who pick option 1 get connected to Khun Nida!"""
-
-
-def handle_admin_command(user_id, text):
+def handle_admin(user_id, text):
     contacts = load_contacts()
     sessions = load_sessions()
     admin_ids = contacts.get("admin_ids", [])
-
-    # First user becomes admin
     if not admin_ids:
         contacts["admin_ids"] = [user_id]
         save_contacts(contacts)
         admin_ids = [user_id]
 
-    text_lower = text.lower().strip()
+    tl = text.lower().strip()
 
-    # /my id — available to everyone
-    if text_lower == "/my id":
-        return "Your LINE user ID is:\n" + user_id
+    if tl == "/my id":
+        return "Your LINE user ID:\n" + user_id
 
-    # /register — available to everyone (they register themselves)
-    if text_lower.startswith("/register "):
+    if tl.startswith("/register "):
         return handle_register(user_id, text, contacts)
 
-    # Everything else requires admin
     if user_id not in admin_ids:
-        return "You don't have admin access.\nYour user ID: " + user_id + "\nAsk an admin to run: /add admin " + user_id
+        return "No admin access.\nYour ID: " + user_id + "\nAsk admin to run: /add admin " + user_id
 
-    if text_lower in ["/admin", "/help"]:
+    if tl in ["/admin", "/help"]:
         return ADMIN_HELP
-
-    if text_lower == "/list admins":
-        return "Admin IDs:\n" + "\n".join(admin_ids) if admin_ids else "No admins."
-
-    if text_lower == "/list sessions":
+    if tl == "/list admins":
+        return "Admins:\n" + "\n".join(admin_ids) if admin_ids else "None."
+    if tl == "/list sessions":
         if not sessions:
             return "No active conversations."
-        lines = []
-        seen = set()
+        seen, lines = set(), []
         for uid, s in sessions.items():
             pair = tuple(sorted([uid, s["connected_to"]]))
             if pair not in seen:
                 seen.add(pair)
-                lines.append(s.get("connected_name", "?") + " <-> " + get_display_name(uid) + " (" + s.get("category", "?") + ")")
-        return "Active conversations:\n" + "\n".join(lines)
+                lines.append(s.get("connected_name", "?") + " <-> " + get_display_name(uid))
+        return "Active:\n" + "\n".join(lines)
 
-    if text_lower.startswith("/add admin "):
-        new_id = text[11:].strip()
-        if new_id not in contacts["admin_ids"]:
-            contacts["admin_ids"].append(new_id)
+    if tl.startswith("/add admin "):
+        nid = text[11:].strip()
+        if nid not in contacts["admin_ids"]:
+            contacts["admin_ids"].append(nid)
             save_contacts(contacts)
-        return "Added admin: " + new_id
+        return "Added admin: " + nid
 
-    if text_lower.startswith("/add counselor "):
+    if tl.startswith("/add counselor "):
         parts = text[15:].split("|")
         if len(parts) < 3:
             return "Format: /add counselor Name | Role | Email"
-        entry = {"name": parts[0].strip(), "role": parts[1].strip(), "email": parts[2].strip(), "user_id": ""}
-        contacts["counselors"].append(entry)
+        e = {"name": parts[0].strip(), "role": parts[1].strip(), "email": parts[2].strip(), "user_id": ""}
+        contacts["counselors"].append(e)
         save_contacts(contacts)
-        return "Added counselor: " + entry["name"] + "\nThey need to message the bot and run: /register counselor " + entry["name"]
+        return "Added: " + e["name"] + "\nThey must message bot then: /register counselor " + e["name"]
 
-    if text_lower.startswith("/add tutor "):
+    if tl.startswith("/add tutor "):
         parts = text[11:].split("|")
         if len(parts) < 3:
             return "Format: /add tutor Name | Role | Subjects"
-        entry = {"name": parts[0].strip(), "role": parts[1].strip(), "user_id": "", "subjects": [s.strip() for s in parts[2].split(",")]}
-        contacts["tutors"].append(entry)
+        e = {"name": parts[0].strip(), "role": parts[1].strip(), "user_id": "", "subjects": [s.strip() for s in parts[2].split(",")]}
+        contacts["tutors"].append(e)
         save_contacts(contacts)
-        return "Added tutor: " + entry["name"] + "\nThey need to message the bot and run: /register tutor " + entry["name"]
+        return "Added: " + e["name"] + "\nThey must message bot then: /register tutor " + e["name"]
 
-    if text_lower.startswith("/add job "):
+    if tl.startswith("/add job "):
         parts = text[9:].split("|")
         if len(parts) < 4:
             return "Format: /add job Name | Company | Role | Industry"
-        entry = {"name": parts[0].strip(), "company": parts[1].strip(), "role": parts[2].strip(), "user_id": "", "industry": parts[3].strip()}
-        contacts["job_contacts"].append(entry)
+        e = {"name": parts[0].strip(), "company": parts[1].strip(), "role": parts[2].strip(), "user_id": "", "industry": parts[3].strip()}
+        contacts["job_contacts"].append(e)
         save_contacts(contacts)
-        return "Added job contact: " + entry["name"] + "\nThey need to message the bot and run: /register job " + entry["name"]
+        return "Added: " + e["name"] + "\nThey must message bot then: /register job " + e["name"]
 
-    if text_lower.startswith("/remove counselor "):
-        name = text[18:].strip()
-        before = len(contacts["counselors"])
-        contacts["counselors"] = [c for c in contacts["counselors"] if c["name"].lower() != name.lower()]
+    if tl.startswith("/remove counselor "):
+        n = text[18:].strip()
+        b = len(contacts["counselors"])
+        contacts["counselors"] = [c for c in contacts["counselors"] if c["name"].lower() != n.lower()]
         save_contacts(contacts)
-        return ("Removed: " + name) if len(contacts["counselors"]) < before else ("Not found: " + name)
+        return ("Removed: " + n) if len(contacts["counselors"]) < b else ("Not found: " + n)
 
-    if text_lower.startswith("/remove tutor "):
-        name = text[14:].strip()
-        before = len(contacts["tutors"])
-        contacts["tutors"] = [t for t in contacts["tutors"] if t["name"].lower() != name.lower()]
+    if tl.startswith("/remove tutor "):
+        n = text[14:].strip()
+        b = len(contacts["tutors"])
+        contacts["tutors"] = [t for t in contacts["tutors"] if t["name"].lower() != n.lower()]
         save_contacts(contacts)
-        return ("Removed: " + name) if len(contacts["tutors"]) < before else ("Not found: " + name)
+        return ("Removed: " + n) if len(contacts["tutors"]) < b else ("Not found: " + n)
 
-    if text_lower.startswith("/remove job "):
-        name = text[12:].strip()
-        before = len(contacts["job_contacts"])
-        contacts["job_contacts"] = [j for j in contacts["job_contacts"] if j["name"].lower() != name.lower()]
+    if tl.startswith("/remove job "):
+        n = text[12:].strip()
+        b = len(contacts["job_contacts"])
+        contacts["job_contacts"] = [j for j in contacts["job_contacts"] if j["name"].lower() != n.lower()]
         save_contacts(contacts)
-        return ("Removed: " + name) if len(contacts["job_contacts"]) < before else ("Not found: " + name)
+        return ("Removed: " + n) if len(contacts["job_contacts"]) < b else ("Not found: " + n)
 
-    if text_lower.startswith("/set scholarship form "):
+    if tl.startswith("/set scholarship form "):
         contacts["scholarship"]["google_form_url"] = text[22:].strip()
         save_contacts(contacts)
-        return "Scholarship form URL updated."
+        return "Form URL updated."
 
-    if text_lower.startswith("/set scholarship doc "):
+    if tl.startswith("/set scholarship doc "):
         contacts["scholarship"]["google_doc_url"] = text[21:].strip()
         save_contacts(contacts)
-        return "Scholarship doc URL updated."
+        return "Doc URL updated."
 
     return "Unknown command. Type /admin for help."
 
-
 def handle_register(user_id, text, contacts):
-    """Let a helper register their LINE account to their name in the contacts list."""
-    text_lower = text.lower().strip()
-
-    if text_lower.startswith("/register counselor "):
+    tl = text.lower().strip()
+    if tl.startswith("/register counselor "):
         name = text[20:].strip()
         for c in contacts["counselors"]:
             if c["name"].lower() == name.lower():
                 c["user_id"] = user_id
                 save_contacts(contacts)
-                return "Registered! You (" + name + ") are now linked as a counselor.\nWhen students need counseling help, their messages will be forwarded to you here."
-        return "No counselor named '" + name + "' found. Ask an admin to add you first with /add counselor"
+                return "Registered! You (" + name + ") will now receive forwarded student messages for counseling."
+        return "No counselor named '" + name + "'. Ask admin to add you first."
 
-    if text_lower.startswith("/register tutor "):
+    if tl.startswith("/register tutor "):
         name = text[16:].strip()
         for t in contacts["tutors"]:
             if t["name"].lower() == name.lower():
                 t["user_id"] = user_id
                 save_contacts(contacts)
-                return "Registered! You (" + name + ") are now linked as a tutor.\nWhen students need study help, their messages will be forwarded to you here."
-        return "No tutor named '" + name + "' found. Ask an admin to add you first with /add tutor"
+                return "Registered! You (" + name + ") will now receive forwarded student messages for tutoring."
+        return "No tutor named '" + name + "'. Ask admin to add you first."
 
-    if text_lower.startswith("/register job "):
+    if tl.startswith("/register job "):
         name = text[14:].strip()
         for j in contacts["job_contacts"]:
             if j["name"].lower() == name.lower():
                 j["user_id"] = user_id
                 save_contacts(contacts)
-                return "Registered! You (" + name + ") are now linked as a job contact.\nWhen students need career help, their messages will be forwarded to you here."
-        return "No job contact named '" + name + "' found. Ask an admin to add you first with /add job"
+                return "Registered! You (" + name + ") will now receive forwarded student messages for job help."
+        return "No job contact named '" + name + "'. Ask admin to add you first."
 
-    if text_lower == "/register scholarship":
+    if tl == "/register scholarship":
         contacts["scholarship"]["contact_user_id"] = user_id
         save_contacts(contacts)
-        return "Registered! You are now the scholarship contact.\nWhen students need scholarship help, their messages will be forwarded to you here."
+        return "Registered as scholarship contact!"
 
-    return "Usage:\n/register counselor YourName\n/register tutor YourName\n/register job YourName\n/register scholarship"
-
-
-# ─── Pending state: waiting to pick a person ─────────────────────
-# We store a lightweight "pending" state for when there are multiple
-# people in a category and the student needs to pick one.
-
-PENDING_FILE = os.path.join(DATA_DIR, "pending.json")
+    return "Usage: /register counselor YourName"
 
 
-def load_pending():
-    if os.path.exists(PENDING_FILE):
-        with open(PENDING_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
-
-
-def save_pending(data):
-    with open(PENDING_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-
-
-# ─── Main Message Handler ───────────────────────────────────────
+# ─── Main handler ────────────────────────────────────────────────
 
 @app.route("/callback", methods=["POST"])
 def callback():
-    signature = request.headers.get("X-Line-Signature", "")
+    sig = request.headers.get("X-Line-Signature", "")
     body = request.get_data(as_text=True)
     try:
-        handler.handle(body, signature)
+        webhook_handler.handle(body, sig)
     except InvalidSignatureError:
         abort(400)
     return "OK"
 
-
-@handler.add(MessageEvent, message=TextMessage)
+@webhook_handler.add(MessageEvent, message=TextMessageContent)
 def handle_message(event):
-    user_id = event.source.user_id
+    uid = event.source.user_id
     text = event.message.text.strip()
-    text_lower = text.lower()
+    tl = text.lower()
 
     sessions = load_sessions()
     contacts = load_contacts()
     pending = load_pending()
 
-    # ── 1. Admin/register commands (always available) ──
+    # 1. Commands
     if text.startswith("/"):
-        # But first disconnect if in session
-        if user_id in sessions and text_lower not in ["/my id"]:
-            disconnect_users(user_id, sessions)
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage(text="Conversation ended.\n\n" + handle_admin_command(user_id, text)),
-            )
-            return
-
-        reply = handle_admin_command(user_id, text)
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+        if uid in sessions and tl != "/my id":
+            disconnect_users(uid, sessions)
+        r = handle_admin(uid, text)
+        reply(event.reply_token, text_msg(r))
         return
 
-    # ── 2. If user is in an active conversation, relay the message ──
-    if user_id in sessions:
-        if text_lower == "exit":
-            other_name = sessions[user_id]["connected_name"]
-            disconnect_users(user_id, sessions)
-            line_bot_api.reply_message(
-                event.reply_token,
-                [
-                    TextSendMessage(text="Conversation with " + other_name + " ended."),
-                    TextSendMessage(text="Type 'hi' to return to the menu."),
-                ],
-            )
+    # 2. Active conversation — relay
+    if uid in sessions:
+        if tl == "exit":
+            other = sessions[uid]["connected_name"]
+            disconnect_users(uid, sessions)
+            reply(event.reply_token, [text_msg("Conversation with " + other + " ended."), text_msg("Type 'hi' to return to the menu.")])
             return
 
-        # Forward the message to the other person
-        other_id = sessions[user_id]["connected_to"]
-        sender_name = get_display_name(user_id)
+        other_id = sessions[uid]["connected_to"]
+        sender = get_display_name(uid)
         try:
-            line_bot_api.push_message(
-                other_id,
-                TextSendMessage(text=sender_name + ":\n" + text),
-            )
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage(text="(sent)"),
-            )
+            push(other_id, text_msg(sender + ":\n" + text))
+            reply(event.reply_token, text_msg("(sent)"))
         except Exception as e:
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage(text="Could not deliver message. The other person may not have added the bot yet. Error: " + str(e)[:100]),
-            )
+            reply(event.reply_token, text_msg("Could not deliver. Error: " + str(e)[:100]))
         return
 
-    # ── 3. If user is picking from a list of people ──
-    if user_id in pending:
-        category = pending[user_id]["category"]
-        available = get_available_people(category, contacts)
-
-        try:
-            choice = int(text) - 1
-            if 0 <= choice < len(available):
-                person = available[choice]
-                # Check if helper is already in a conversation
-                if person["user_id"] in sessions:
-                    line_bot_api.reply_message(
-                        event.reply_token,
-                        TextSendMessage(text=person["name"] + " is currently helping someone else. Please try again in a few minutes, or pick another person."),
-                    )
-                    return
-
-                del pending[user_id]
-                save_pending(pending)
-                connect_users(user_id, person["user_id"], person["name"], category, sessions)
-                # reply already sent by connect_users via push
-                line_bot_api.reply_message(event.reply_token, TextSendMessage(text="Connecting you to " + person["name"] + "..."))
-                return
-            else:
-                line_bot_api.reply_message(event.reply_token, TextSendMessage(text="Please pick a valid number from the list, or type 'exit' to go back."))
-                return
-        except ValueError:
-            if text_lower == "exit":
-                del pending[user_id]
-                save_pending(pending)
-                line_bot_api.reply_message(event.reply_token, build_main_menu())
-                return
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="Please reply with a number, or type 'exit' to go back."))
-            return
-
-    # ── 4. Menu triggers ──
-    if text_lower in ["hi", "hello", "menu", "start", "help", "hey", "back"]:
-        line_bot_api.reply_message(event.reply_token, build_main_menu())
-        return
-
-    # ── 5. Option routing ──
-
-    def try_connect(category):
-        available = get_available_people(category, contacts)
-        if not available:
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage(text="Sorry, no one is available for this category right now. All helpers need to register with the bot first.\n\nType 'hi' to return to the menu."),
-            )
-            return
-
-        if len(available) == 1:
-            person = available[0]
-            if person["user_id"] in sessions:
-                line_bot_api.reply_message(
-                    event.reply_token,
-                    TextSendMessage(text=person["name"] + " is currently helping someone else. Please try again in a few minutes."),
-                )
-                return
-            connect_users(user_id, person["user_id"], person["name"], category, sessions)
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="Connecting you to " + person["name"] + "..."))
-            return
-
-        # Multiple people available — ask to pick
-        picker_text = build_person_picker(category, contacts)
-        if picker_text:
-            pending[user_id] = {"category": category}
+    # 3. Picking from list
+    if uid in pending:
+        cat = pending[uid]["category"]
+        avail = get_available(cat, contacts)
+        if tl == "exit":
+            del pending[uid]
             save_pending(pending)
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=picker_text))
-        else:
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage(text="Sorry, no registered helpers available right now."),
-            )
+            reply(event.reply_token, build_main_menu())
+            return
+        try:
+            idx = int(text) - 1
+            if 0 <= idx < len(avail):
+                p = avail[idx]
+                if p["user_id"] in sessions:
+                    reply(event.reply_token, text_msg(p["name"] + " is busy. Try again shortly."))
+                    return
+                del pending[uid]
+                save_pending(pending)
+                connect_users(uid, p["user_id"], p["name"], cat, sessions)
+                reply(event.reply_token, text_msg("Connecting you to " + p["name"] + "..."))
+                return
+            reply(event.reply_token, text_msg("Pick a valid number or type 'exit'."))
+            return
+        except ValueError:
+            reply(event.reply_token, text_msg("Reply with a number or type 'exit'."))
+            return
 
-    # Option 1: Counselor
-    if text in ["1"] or "counselor" in text_lower or "admission" in text_lower:
+    # 4. Menu
+    if tl in ["hi", "hello", "menu", "start", "help", "hey", "back"]:
+        reply(event.reply_token, build_main_menu())
+        return
+
+    # 5. Options
+    def try_connect(category):
+        avail = get_available(category, contacts)
+        if not avail:
+            reply(event.reply_token, text_msg("No one available for this yet. Helpers need to register first.\nType 'hi' for menu."))
+            return
+        if len(avail) == 1:
+            p = avail[0]
+            if p["user_id"] in sessions:
+                reply(event.reply_token, text_msg(p["name"] + " is busy. Try again shortly."))
+                return
+            connect_users(uid, p["user_id"], p["name"], category, sessions)
+            reply(event.reply_token, text_msg("Connecting you to " + p["name"] + "..."))
+            return
+        picker = build_picker(category, contacts)
+        if picker:
+            pending[uid] = {"category": category}
+            save_pending(pending)
+            reply(event.reply_token, text_msg(picker))
+
+    if text in ["1"] or "counselor" in tl or "admission" in tl:
         try_connect("counselor")
         return
-
-    # Option 2: Education
-    if text in ["2"] or "tutor" in text_lower or "education" in text_lower or "test" in text_lower or "study" in text_lower:
+    if text in ["2"] or "tutor" in tl or "education" in tl or "test" in tl or "study" in tl:
         try_connect("tutor")
         return
-
-    # Option 3: Scholarship
-    if text in ["3"] or "scholarship" in text_lower:
-        messages = build_scholarship_response(contacts)
-        line_bot_api.reply_message(event.reply_token, messages)
+    if text in ["3"] or "scholarship" in tl:
+        reply(event.reply_token, build_scholarship_messages(contacts))
         return
-
-    # Option 3 follow-up: connect to scholarship contact
-    if text_lower == "connect":
-        scholarship_id = contacts.get("scholarship", {}).get("contact_user_id", "")
-        scholarship_name = contacts.get("scholarship", {}).get("contact_name", "")
-        if scholarship_id:
-            if scholarship_id in sessions:
-                line_bot_api.reply_message(
-                    event.reply_token,
-                    TextSendMessage(text=scholarship_name + " is currently helping someone else. Try again shortly."),
-                )
+    if tl == "connect":
+        si = contacts.get("scholarship", {})
+        sid, sn = si.get("contact_user_id", ""), si.get("contact_name", "")
+        if sid:
+            if sid in sessions:
+                reply(event.reply_token, text_msg(sn + " is busy. Try shortly."))
                 return
-            connect_users(user_id, scholarship_id, scholarship_name, "scholarship", sessions)
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="Connecting you to " + scholarship_name + "..."))
+            connect_users(uid, sid, sn, "scholarship", sessions)
+            reply(event.reply_token, text_msg("Connecting you to " + sn + "..."))
         else:
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="Scholarship contact hasn't registered yet. Please fill in the form in the meantime!"))
+            reply(event.reply_token, text_msg("Scholarship contact not registered yet. Please fill in the form!"))
         return
-
-    # Option 4: Job
-    if text in ["4"] or "job" in text_lower or "work" in text_lower or "career" in text_lower:
+    if text in ["4"] or "job" in tl or "work" in tl or "career" in tl:
         try_connect("job")
         return
 
-    # Default: show menu
-    line_bot_api.reply_message(
-        event.reply_token,
-        [
-            TextSendMessage(text="Welcome! Let me help you find the right support."),
-            build_main_menu(),
-        ],
-    )
-
-
-# ─── Health check ────────────────────────────────────────────────
+    # Default
+    reply(event.reply_token, [text_msg("Welcome! Let me help you find the right support."), build_main_menu()])
 
 @app.route("/", methods=["GET"])
 def health():
     return "Student Support Hub Bot is running!"
-
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))

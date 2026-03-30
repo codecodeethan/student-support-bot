@@ -1,0 +1,35 @@
+{
+  "counselors": [
+    {
+      "name": "Khun Somporn (Thai Counselor)",
+      "role": "Admissions & Academic Guidance",
+      "line_id": "@counselor1",
+      "email": "somporn@school.ac.th"
+    }
+  ],
+  "tutors": [
+    {
+      "name": "Ethan",
+      "role": "Team Lead — General Support",
+      "line_id": "@ethan",
+      "subjects": ["Math", "Science", "English"]
+    }
+  ],
+  "scholarship": {
+    "contact_name": "Ethan",
+    "contact_line": "@ethan",
+    "google_form_url": "https://docs.google.com/forms/d/e/YOUR_FORM_ID/viewform",
+    "google_doc_url": "https://docs.google.com/document/d/YOUR_DOC_ID/edit",
+    "description": "We offer guidance on scholarships for students at risk of dropping out. Fill in the form below and we'll match you with opportunities."
+  },
+  "job_contacts": [
+    {
+      "name": "Contact from Job Fair",
+      "company": "Company Name",
+      "role": "HR / Recruiter",
+      "line_id": "@jobcontact1",
+      "industry": "Technology"
+    }
+  ],
+  "admin_ids": []
+}

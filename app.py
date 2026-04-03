@@ -287,79 +287,77 @@ def ui_inbox(helper_session):
 
 
 def ui_chat_history(student_name, messages, category):
-    """Show full conversation history like a DM thread. Max last 15 messages."""
+    """Horizontal swipeable carousel — each bubble = one message. Like swiping through DMs."""
     color = CAT_COLOR.get(category, GREEN)
-    recent = messages[-15:] if len(messages) > 15 else messages
+    # LINE carousel max 12 bubbles: 1 header + 10 messages + 1 footer
+    recent = messages[-10:] if len(messages) > 10 else messages
 
     bubbles = []
 
-    # Header bubble
+    # First bubble: header with student info
     bubbles.append({
-        "type": "bubble", "size": "mega",
+        "type": "bubble", "size": "kilo",
         "body": {
-            "type": "box", "layout": "vertical", "paddingAll": "16px",
-            "backgroundColor": DARK,
+            "type": "box", "layout": "vertical", "paddingAll": "20px", "spacing": "md",
+            "backgroundColor": DARK, "alignItems": "center", "justifyContent": "center",
             "contents": [
-                {"type": "box", "layout": "horizontal", "spacing": "md",
-                 "contents": [
-                     {"type": "box", "layout": "vertical", "width": "36px", "height": "36px",
-                      "backgroundColor": color, "cornerRadius": "18px",
-                      "justifyContent": "center", "alignItems": "center",
-                      "contents": [{"type": "text", "text": student_name[0].upper(), "color": WHITE, "weight": "bold", "size": "md", "align": "center"}]},
-                     {"type": "box", "layout": "vertical", "flex": 1,
-                      "contents": [
-                          {"type": "text", "text": student_name, "color": WHITE, "weight": "bold", "size": "md"},
-                          {"type": "text", "text": str(len(messages)) + " messages", "color": "#FFFFFF80", "size": "xxs"},
-                      ]},
-                 ]},
+                {"type": "box", "layout": "vertical", "width": "48px", "height": "48px",
+                 "backgroundColor": color, "cornerRadius": "24px",
+                 "justifyContent": "center", "alignItems": "center",
+                 "contents": [{"type": "text", "text": student_name[0].upper(), "color": WHITE, "weight": "bold", "size": "xl", "align": "center"}]},
+                {"type": "text", "text": student_name, "color": WHITE, "weight": "bold", "size": "lg", "align": "center"},
+                {"type": "text", "text": str(len(messages)) + " messages", "color": "#FFFFFF80", "size": "xxs", "align": "center"},
+                {"type": "text", "text": "Swipe to read  >>", "color": "#FFFFFF60", "size": "xxs", "align": "center", "margin": "lg"},
             ],
         },
     })
 
-    # Group messages into bubbles (5 messages per bubble to stay within LINE limits)
-    chunk_size = 5
-    for chunk_start in range(0, len(recent), chunk_size):
-        chunk = recent[chunk_start:chunk_start + chunk_size]
-        msg_contents = []
-
-        for m in chunk:
-            is_student = m["from"] == "student"
-            bubble_color = LIGHT if is_student else "#E3F2FD"
-            name = m.get("name", "?")
-            align = "start" if is_student else "end"
-
-            msg_contents.append({
-                "type": "box", "layout": "vertical", "spacing": "xs",
-                "contents": [
-                    {"type": "text", "text": name, "size": "xxs", "color": GRAY, "weight": "bold", "align": align},
-                    {"type": "box", "layout": "vertical",
-                     "backgroundColor": bubble_color, "cornerRadius": "14px",
-                     "paddingAll": "10px",
-                     "contents": [{"type": "text", "text": m["text"], "size": "sm", "color": "#1A1A1A", "wrap": True}]},
-                ],
-            })
+    # Each message = one bubble
+    for m in recent:
+        is_student = m["from"] == "student"
+        name = m.get("name", "?")
+        bg = LIGHT if is_student else "#E3F2FD"
+        dot_color = color if is_student else BLUE
+        label = "Student" if is_student else "You"
 
         bubbles.append({
-            "type": "bubble", "size": "mega",
-            "body": {"type": "box", "layout": "vertical", "spacing": "md", "paddingAll": "12px", "contents": msg_contents},
+            "type": "bubble", "size": "kilo",
+            "body": {
+                "type": "box", "layout": "vertical", "paddingAll": "16px", "spacing": "sm",
+                "contents": [
+                    # Who sent it
+                    {"type": "box", "layout": "horizontal", "spacing": "sm",
+                     "contents": [
+                         {"type": "box", "layout": "vertical", "width": "24px", "height": "24px",
+                          "backgroundColor": dot_color, "cornerRadius": "12px",
+                          "justifyContent": "center", "alignItems": "center",
+                          "contents": [{"type": "text", "text": name[0].upper(), "color": WHITE, "weight": "bold", "size": "xxs", "align": "center"}]},
+                         {"type": "text", "text": name, "weight": "bold", "size": "xs", "color": "#1A1A1A", "gravity": "center"},
+                         {"type": "text", "text": label, "size": "xxs", "color": GRAY, "gravity": "center", "align": "end", "flex": 1},
+                     ]},
+                    # Message
+                    {"type": "box", "layout": "vertical",
+                     "backgroundColor": bg, "cornerRadius": "14px", "paddingAll": "12px", "margin": "sm",
+                     "contents": [{"type": "text", "text": m["text"], "size": "sm", "color": "#1A1A1A", "wrap": True}]},
+                ],
+            },
         })
 
-    # Footer bubble with reply instruction
+    # Last bubble: reply instruction
     bubbles.append({
-        "type": "bubble", "size": "mega",
+        "type": "bubble", "size": "kilo",
         "body": {
-            "type": "box", "layout": "vertical", "paddingAll": "16px", "backgroundColor": LIGHT,
+            "type": "box", "layout": "vertical", "paddingAll": "20px", "spacing": "md",
+            "backgroundColor": LIGHT, "alignItems": "center", "justifyContent": "center",
             "contents": [
-                {"type": "text", "text": "Replying to " + student_name, "size": "sm", "weight": "bold", "color": "#1A1A1A", "align": "center"},
-                {"type": "text", "text": "Just type your message to reply", "size": "xs", "color": GRAY, "align": "center", "margin": "sm"},
-                {"type": "text", "text": "'inbox' = back to inbox  |  'exit " + student_name + "' = end chat", "size": "xxs", "color": "#B0B0B0", "align": "center", "margin": "md", "wrap": True},
+                {"type": "text", "text": "Replying to", "size": "xs", "color": GRAY, "align": "center"},
+                {"type": "text", "text": student_name, "size": "lg", "weight": "bold", "color": "#1A1A1A", "align": "center"},
+                {"type": "separator", "color": "#E0E0E0", "margin": "md"},
+                {"type": "text", "text": "Type your message to reply", "size": "xs", "color": GRAY, "align": "center", "margin": "md"},
+                {"type": "text", "text": "'inbox' = back", "size": "xxs", "color": "#B0B0B0", "align": "center", "margin": "sm"},
             ],
         },
     })
-
-    # LINE carousel max 12 bubbles
-    if len(bubbles) > 12:
-        bubbles = [bubbles[0]] + bubbles[-(11):]
 
     return F("Chat with " + student_name, {"type": "carousel", "contents": bubbles})
 
@@ -386,10 +384,14 @@ def connect(student_id, helper_id, helper_name, cat, sessions):
     }
     if helper_id not in sessions or sessions[helper_id].get("type") != "helper":
         sessions[helper_id] = {"type": "helper", "students": {}, "viewing": None}
+
+    # Check if this student is already in helper's list (returning student)
+    is_new = student_id not in sessions[helper_id]["students"]
+
     sessions[helper_id]["students"][student_id] = {"name": sname, "category": cat, "unread": 0}
     save_sessions(sessions)
 
-    # Only notify student
+    # Notify student
     color = CAT_COLOR.get(cat, GREEN)
     label = CAT_LABEL.get(cat, "Support")
     push(student_id, F("Connected", {
@@ -413,8 +415,9 @@ def connect(student_id, helper_id, helper_name, cat, sessions):
                    "contents": [{"type": "text", "text": "Type 'exit' to end conversation", "size": "xxs", "color": GRAY, "align": "center"}]},
     }))
 
-    # Notify helper with a simple one-liner (not every message)
-    push(helper_id, T("New student connected: " + sname + " (" + label + "). Check your inbox when ready."))
+    # Only notify helper if this is a NEW student
+    if is_new:
+        push(helper_id, T("New student connected: " + sname + " (" + label + "). Check your inbox when ready."))
 
 
 def disconnect(student_id, sessions):

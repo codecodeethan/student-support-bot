@@ -1,11 +1,9 @@
 """
-LINE Chatbot — Student Support Hub v7
-SIMPLE VERSION:
-- Students connect, type messages freely
-- Helpers DON'T get spammed with every message
-- Helpers type 'inbox' to see list of students + unread count
-- Helpers type a number to open that student's full chat history
-- Helpers reply from there
+LINE Chatbot — Student Support Hub v8
+- Tappable inbox (tap student = auto opens chat)
+- Single tall bubble with all messages stacked vertically
+- Back to inbox button at bottom
+- Only notifies helper for NEW students
 """
 
 import os
@@ -15,7 +13,7 @@ from flask import Flask, request, abort
 
 from linebot.v3 import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
-from linebot.v3.webhooks import MessageEvent, TextMessageContent
+from linebot.v3.webhooks import MessageEvent, PostbackEvent, TextMessageContent
 from linebot.v3.messaging import (
     Configuration, ApiClient, MessagingApi,
     ReplyMessageRequest, PushMessageRequest,
@@ -75,36 +73,10 @@ def get_name(uid):
     try: return get_api().get_profile(uid).display_name
     except: return "Student"
 
-# Colors
 BLUE = "#0066FF"; GREEN = "#00C853"; RED = "#FF3D00"; ORANGE = "#FF9100"
 DARK = "#1A1A2E"; GRAY = "#78909C"; LIGHT = "#F5F7FA"; WHITE = "#FFFFFF"
 CAT_COLOR = {"counselor": BLUE, "tutor": GREEN, "job": ORANGE, "scholarship": RED}
 CAT_LABEL = {"counselor": "Counseling", "tutor": "Education", "job": "Job Search", "scholarship": "Scholarship"}
-
-"""
-SESSION STRUCTURE:
-
-sessions = {
-    "student_id": {
-        "type": "student",
-        "helper_id": "xxx",
-        "helper_name": "Ethan",
-        "category": "tutor",
-        "messages": [
-            {"from": "student", "name": "Somchai", "text": "Hello", "time": 123456},
-            {"from": "helper", "name": "Ethan", "text": "Hi!", "time": 123457},
-        ],
-        "unread": 0
-    },
-    "helper_id": {
-        "type": "helper",
-        "students": {
-            "student_id": {"name": "Somchai", "category": "tutor", "unread": 2},
-        },
-        "viewing": null  // which student's chat they have open
-    }
-}
-"""
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -209,11 +181,11 @@ def ui_picker(cat, contacts):
 
 
 # ═══════════════════════════════════════════════════════════════
-# HELPER UI — INBOX + CHAT HISTORY
+# HELPER UI
 # ═══════════════════════════════════════════════════════════════
 
 def ui_inbox(helper_session):
-    """Shows list of students with unread counts. Like Instagram DM list."""
+    """Inbox with tappable student rows. Tap = auto-opens chat via postback."""
     students = helper_session.get("students", {})
     if not students:
         return F("Inbox", {
@@ -232,8 +204,6 @@ def ui_inbox(helper_session):
         cat_short = {"counselor": "CNS", "tutor": "EDU", "job": "JOB", "scholarship": "SCH"}.get(info.get("category", ""), "")
 
         row_contents = [
-            # Number
-            {"type": "text", "text": str(i), "size": "sm", "color": GRAY, "weight": "bold", "gravity": "center", "flex": 0},
             # Avatar
             {"type": "box", "layout": "vertical", "width": "40px", "height": "40px",
              "backgroundColor": color, "cornerRadius": "20px",
@@ -250,8 +220,8 @@ def ui_inbox(helper_session):
         # Unread badge
         if unread > 0:
             row_contents.append(
-                {"type": "box", "layout": "vertical", "width": "24px", "height": "24px",
-                 "backgroundColor": RED, "cornerRadius": "12px",
+                {"type": "box", "layout": "vertical", "width": "26px", "height": "26px",
+                 "backgroundColor": RED, "cornerRadius": "13px",
                  "justifyContent": "center", "alignItems": "center", "flex": 0,
                  "contents": [{"type": "text", "text": str(unread), "color": WHITE, "size": "xs", "weight": "bold", "align": "center"}]}
             )
@@ -261,6 +231,7 @@ def ui_inbox(helper_session):
             "paddingAll": "12px", "cornerRadius": "10px",
             "borderWidth": "1px", "borderColor": RED if unread > 0 else "#E8E8E8",
             "backgroundColor": "#FFF5F5" if unread > 0 else WHITE,
+            "action": {"type": "postback", "label": "open", "data": "open_chat:" + sid, "displayText": info["name"]},
             "contents": row_contents,
         })
 
@@ -280,86 +251,84 @@ def ui_inbox(helper_session):
         "body": {"type": "box", "layout": "vertical", "spacing": "sm", "paddingAll": "12px", "contents": rows},
         "footer": {"type": "box", "layout": "vertical", "paddingAll": "10px", "backgroundColor": LIGHT,
                    "contents": [
-                       {"type": "text", "text": "Reply with a number to open chat", "size": "xxs", "color": GRAY, "align": "center"},
+                       {"type": "text", "text": "Tap a conversation to open it", "size": "xxs", "color": GRAY, "align": "center"},
                        {"type": "text", "text": "exit Name = end conversation", "size": "xxs", "color": GRAY, "align": "center", "margin": "xs"},
                    ]},
     })
 
 
 def ui_chat_history(student_name, messages, category):
-    """Horizontal swipeable carousel — each bubble = one message. Like swiping through DMs."""
+    """All messages in one tall bubble. Student = gray left, helper = blue right."""
     color = CAT_COLOR.get(category, GREEN)
-    # LINE carousel max 12 bubbles: 1 header + 10 messages + 1 footer
-    recent = messages[-10:] if len(messages) > 10 else messages
+    recent = messages[-8:] if len(messages) > 8 else messages
 
-    bubbles = []
-
-    # First bubble: header with student info
-    bubbles.append({
-        "type": "bubble", "size": "kilo",
-        "body": {
-            "type": "box", "layout": "vertical", "paddingAll": "20px", "spacing": "md",
-            "backgroundColor": DARK, "alignItems": "center", "justifyContent": "center",
-            "contents": [
-                {"type": "box", "layout": "vertical", "width": "48px", "height": "48px",
-                 "backgroundColor": color, "cornerRadius": "24px",
-                 "justifyContent": "center", "alignItems": "center",
-                 "contents": [{"type": "text", "text": student_name[0].upper(), "color": WHITE, "weight": "bold", "size": "xl", "align": "center"}]},
-                {"type": "text", "text": student_name, "color": WHITE, "weight": "bold", "size": "lg", "align": "center"},
-                {"type": "text", "text": str(len(messages)) + " messages", "color": "#FFFFFF80", "size": "xxs", "align": "center"},
-                {"type": "text", "text": "Swipe to read  >>", "color": "#FFFFFF60", "size": "xxs", "align": "center", "margin": "lg"},
-            ],
-        },
-    })
-
-    # Each message = one bubble
+    msg_rows = []
     for m in recent:
         is_student = m["from"] == "student"
         name = m.get("name", "?")
         bg = LIGHT if is_student else "#E3F2FD"
         dot_color = color if is_student else BLUE
-        label = "Student" if is_student else "You"
 
-        bubbles.append({
-            "type": "bubble", "size": "kilo",
-            "body": {
-                "type": "box", "layout": "vertical", "paddingAll": "16px", "spacing": "sm",
-                "contents": [
-                    # Who sent it
-                    {"type": "box", "layout": "horizontal", "spacing": "sm",
-                     "contents": [
-                         {"type": "box", "layout": "vertical", "width": "24px", "height": "24px",
-                          "backgroundColor": dot_color, "cornerRadius": "12px",
-                          "justifyContent": "center", "alignItems": "center",
-                          "contents": [{"type": "text", "text": name[0].upper(), "color": WHITE, "weight": "bold", "size": "xxs", "align": "center"}]},
-                         {"type": "text", "text": name, "weight": "bold", "size": "xs", "color": "#1A1A1A", "gravity": "center"},
-                         {"type": "text", "text": label, "size": "xxs", "color": GRAY, "gravity": "center", "align": "end", "flex": 1},
-                     ]},
-                    # Message
-                    {"type": "box", "layout": "vertical",
-                     "backgroundColor": bg, "cornerRadius": "14px", "paddingAll": "12px", "margin": "sm",
-                     "contents": [{"type": "text", "text": m["text"], "size": "sm", "color": "#1A1A1A", "wrap": True}]},
-                ],
-            },
+        msg_rows.append({
+            "type": "box", "layout": "vertical", "spacing": "xs", "margin": "md",
+            "contents": [
+                # Name row
+                {"type": "box", "layout": "horizontal", "spacing": "sm",
+                 "contents": [
+                     {"type": "box", "layout": "vertical", "width": "22px", "height": "22px",
+                      "backgroundColor": dot_color, "cornerRadius": "11px",
+                      "justifyContent": "center", "alignItems": "center",
+                      "contents": [{"type": "text", "text": name[0].upper(), "color": WHITE, "weight": "bold", "size": "xxs", "align": "center"}]},
+                     {"type": "text", "text": name, "weight": "bold", "size": "xxs", "color": GRAY, "gravity": "center"},
+                 ]},
+                # Message bubble
+                {"type": "box", "layout": "vertical",
+                 "backgroundColor": bg, "cornerRadius": "12px", "paddingAll": "10px",
+                 "contents": [{"type": "text", "text": m["text"], "size": "sm", "color": "#1A1A1A", "wrap": True}]},
+            ],
         })
 
-    # Last bubble: reply instruction
-    bubbles.append({
-        "type": "bubble", "size": "kilo",
-        "body": {
-            "type": "box", "layout": "vertical", "paddingAll": "20px", "spacing": "md",
-            "backgroundColor": LIGHT, "alignItems": "center", "justifyContent": "center",
+    # If no messages yet
+    if not msg_rows:
+        msg_rows.append({
+            "type": "box", "layout": "vertical", "paddingAll": "20px",
+            "contents": [{"type": "text", "text": "No messages yet", "color": GRAY, "align": "center", "size": "sm"}],
+        })
+
+    body_contents = [
+        # Header inside the bubble
+        {"type": "box", "layout": "horizontal", "spacing": "md", "paddingBottom": "12px",
+         "contents": [
+             {"type": "box", "layout": "vertical", "width": "36px", "height": "36px",
+              "backgroundColor": color, "cornerRadius": "18px",
+              "justifyContent": "center", "alignItems": "center",
+              "contents": [{"type": "text", "text": student_name[0].upper(), "color": WHITE, "weight": "bold", "size": "md", "align": "center"}]},
+             {"type": "box", "layout": "vertical", "flex": 1,
+              "contents": [
+                  {"type": "text", "text": student_name, "weight": "bold", "size": "md", "color": "#1A1A1A"},
+                  {"type": "text", "text": str(len(messages)) + " messages total", "size": "xxs", "color": GRAY},
+              ]},
+         ]},
+        {"type": "separator", "color": "#E8E8E8"},
+    ] + msg_rows + [
+        {"type": "separator", "color": "#E8E8E8", "margin": "lg"},
+        # Reply hint
+        {"type": "text", "text": "Type your reply below", "size": "xs", "color": GRAY, "align": "center", "margin": "md"},
+    ]
+
+    return F("Chat with " + student_name, {
+        "type": "bubble", "size": "mega",
+        "body": {"type": "box", "layout": "vertical", "paddingAll": "16px", "contents": body_contents},
+        "footer": {
+            "type": "box", "layout": "horizontal", "spacing": "sm", "paddingAll": "12px",
             "contents": [
-                {"type": "text", "text": "Replying to", "size": "xs", "color": GRAY, "align": "center"},
-                {"type": "text", "text": student_name, "size": "lg", "weight": "bold", "color": "#1A1A1A", "align": "center"},
-                {"type": "separator", "color": "#E0E0E0", "margin": "md"},
-                {"type": "text", "text": "Type your message to reply", "size": "xs", "color": GRAY, "align": "center", "margin": "md"},
-                {"type": "text", "text": "'inbox' = back", "size": "xxs", "color": "#B0B0B0", "align": "center", "margin": "sm"},
+                {"type": "button", "style": "secondary", "height": "sm", "flex": 1,
+                 "action": {"type": "postback", "label": "Back to Inbox", "data": "go_inbox", "displayText": "inbox"}},
+                {"type": "button", "style": "primary", "color": RED, "height": "sm", "flex": 1,
+                 "action": {"type": "postback", "label": "End Chat", "data": "end_chat:" + student_name, "displayText": "exit " + student_name}},
             ],
         },
     })
-
-    return F("Chat with " + student_name, {"type": "carousel", "contents": bubbles})
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -385,13 +354,10 @@ def connect(student_id, helper_id, helper_name, cat, sessions):
     if helper_id not in sessions or sessions[helper_id].get("type") != "helper":
         sessions[helper_id] = {"type": "helper", "students": {}, "viewing": None}
 
-    # Check if this student is already in helper's list (returning student)
     is_new = student_id not in sessions[helper_id]["students"]
-
     sessions[helper_id]["students"][student_id] = {"name": sname, "category": cat, "unread": 0}
     save_sessions(sessions)
 
-    # Notify student
     color = CAT_COLOR.get(cat, GREEN)
     label = CAT_LABEL.get(cat, "Support")
     push(student_id, F("Connected", {
@@ -415,14 +381,12 @@ def connect(student_id, helper_id, helper_name, cat, sessions):
                    "contents": [{"type": "text", "text": "Type 'exit' to end conversation", "size": "xxs", "color": GRAY, "align": "center"}]},
     }))
 
-    # Only notify helper if this is a NEW student
     if is_new:
-        push(helper_id, T("New student connected: " + sname + " (" + label + "). Check your inbox when ready."))
-
+        push(helper_id, T("New student: " + sname + " (" + label + "). Type 'inbox' when ready."))
 
 def disconnect(student_id, sessions):
     s = sessions.get(student_id)
-    if not s or s.get("type") != "student": return
+    if not s or s.get("type") != "student": return "Student"
     hid = s["helper_id"]
     sname = "Student"
     hs = sessions.get(hid)
@@ -435,6 +399,23 @@ def disconnect(student_id, sessions):
     sessions.pop(student_id, None)
     save_sessions(sessions)
     return sname
+
+def open_chat(helper_id, student_id, sessions):
+    """Helper opens a student's chat. Mark read, set viewing, return history."""
+    hs = sessions.get(helper_id)
+    if not hs or hs.get("type") != "helper": return None
+    if student_id not in hs["students"]: return None
+
+    hs["students"][student_id]["unread"] = 0
+    hs["viewing"] = student_id
+    save_sessions(sessions)
+
+    ss = sessions.get(student_id, {})
+    msgs = ss.get("messages", [])
+    cat = hs["students"][student_id].get("category", "tutor")
+    name = hs["students"][student_id]["name"]
+
+    return ui_chat_history(name, msgs, cat)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -463,7 +444,7 @@ def handle_cmd(uid, text):
     if uid not in admins: return "No admin access. ID: " + uid
     if tl in ["/admin", "/help"]: return ADMIN_HELP
     if tl == "/list admins": return "Admins:\n" + "\n".join(admins)
-    if tl.startswith("/add admin "): 
+    if tl.startswith("/add admin "):
         nid = text[11:].strip()
         if nid not in admins: contacts["admin_ids"].append(nid); save_contacts(contacts)
         return "Added."
@@ -534,6 +515,55 @@ def callback():
     except InvalidSignatureError: abort(400)
     return "OK"
 
+
+# ─── Handle postback (tapping buttons) ──────────────────────────
+
+@webhook_handler.add(PostbackEvent)
+def handle_postback(event):
+    uid = event.source.user_id
+    data = event.postback.data
+    sessions = load_sessions()
+
+    if data.startswith("open_chat:"):
+        student_id = data[10:]
+        chat = open_chat(uid, student_id, sessions)
+        if chat:
+            reply(event.reply_token, chat)
+        else:
+            reply(event.reply_token, T("Chat not found. Type 'inbox'."))
+        return
+
+    if data == "go_inbox":
+        us = sessions.get(uid)
+        if us and us.get("type") == "helper":
+            us["viewing"] = None
+            save_sessions(sessions)
+            reply(event.reply_token, ui_inbox(us))
+        else:
+            reply(event.reply_token, T("Type 'inbox' to see conversations."))
+        return
+
+    if data.startswith("end_chat:"):
+        target_name = data[9:]
+        us = sessions.get(uid)
+        if us and us.get("type") == "helper":
+            for sid, info in us.get("students", {}).items():
+                if info["name"].lower() == target_name.lower():
+                    try: push(sid, T("Chat has ended. Type 'hi' to start over."))
+                    except: pass
+                    disconnect(sid, sessions)
+                    sessions = load_sessions()
+                    us2 = sessions.get(uid)
+                    if us2 and us2.get("type") == "helper":
+                        reply(event.reply_token, [T("Ended chat with " + target_name + "."), ui_inbox(us2)])
+                    else:
+                        reply(event.reply_token, T("Ended chat with " + target_name + ". No more conversations."))
+                    return
+        reply(event.reply_token, T("Could not find that chat."))
+
+
+# ─── Handle text messages ───────────────────────────────────────
+
 @webhook_handler.add(MessageEvent, message=TextMessageContent)
 def handle_message(event):
     uid = event.source.user_id
@@ -550,13 +580,11 @@ def handle_message(event):
 
     us = sessions.get(uid)
 
-    # ════════════════════════════════════════
-    # STUDENT FLOW
-    # ════════════════════════════════════════
+    # ── STUDENT ──
     if us and us.get("type") == "student":
         if tl == "exit":
             hname = us["helper_name"]
-            sname = disconnect(uid, sessions)
+            disconnect(uid, sessions)
             reply(event.reply_token, F("Ended", {
                 "type": "bubble", "size": "kilo",
                 "body": {"type": "box", "layout": "vertical", "paddingAll": "16px", "backgroundColor": LIGHT, "cornerRadius": "12px",
@@ -567,16 +595,13 @@ def handle_message(event):
             }))
             return
 
-        # Store message silently — no notification to helper
+        # Store message silently
         sname = get_name(uid)
         us["messages"].append({"from": "student", "name": sname, "text": text, "time": int(time.time())})
-
-        # Increment unread on helper side
         hid = us["helper_id"]
         hs = sessions.get(hid)
         if hs and hs.get("type") == "helper" and uid in hs["students"]:
             hs["students"][uid]["unread"] = hs["students"][uid].get("unread", 0) + 1
-
         save_sessions(sessions)
 
         reply(event.reply_token, F("Delivered", {
@@ -586,95 +611,71 @@ def handle_message(event):
         }))
         return
 
-    # ════════════════════════════════════════
-    # HELPER FLOW
-    # ════════════════════════════════════════
+    # ── HELPER ──
     if us and us.get("type") == "helper":
         students = us.get("students", {})
 
-        # "inbox" — show inbox
+        # Inbox
         if tl in ["inbox", "hi", "hello", "menu", "help", "hey"]:
-            us["viewing"] = None
-            save_sessions(sessions)
+            us["viewing"] = None; save_sessions(sessions)
             reply(event.reply_token, ui_inbox(us))
             return
 
-        # "exit Name" — disconnect student
+        # Exit
         if tl.startswith("exit "):
             tn = text[5:].strip()
             for sid, info in students.items():
                 if info["name"].lower() == tn.lower():
-                    hname = get_name(uid)
-                    ss = sessions.get(sid)
-                    if ss:
-                        try: push(sid, T("Chat with " + hname + " has ended. Type 'hi' to start over."))
-                        except: pass
+                    try: push(sid, T("Chat has ended. Type 'hi' to start over."))
+                    except: pass
                     disconnect(sid, sessions)
                     sessions = load_sessions()
-                    reply(event.reply_token, T("Ended chat with " + tn + "."))
+                    us2 = sessions.get(uid)
+                    if us2 and us2.get("type") == "helper":
+                        reply(event.reply_token, [T("Ended chat with " + tn + "."), ui_inbox(us2)])
+                    else:
+                        reply(event.reply_token, T("Ended. No more conversations."))
                     return
             reply(event.reply_token, T("No chat with '" + tn + "'. Type 'inbox'."))
             return
 
-        # Number — open that student's chat
-        if not us.get("viewing"):
-            try:
-                idx = int(text) - 1
-                student_list = list(students.items())
-                if 0 <= idx < len(student_list):
-                    sid, info = student_list[idx]
-                    # Mark as read
-                    info["unread"] = 0
-                    us["viewing"] = sid
-                    save_sessions(sessions)
-
-                    # Get messages from student session
-                    ss = sessions.get(sid, {})
-                    msgs = ss.get("messages", [])
-                    cat = info.get("category", "tutor")
-
-                    reply(event.reply_token, ui_chat_history(info["name"], msgs, cat))
-                    return
-                reply(event.reply_token, T("Invalid number. Type 'inbox'."))
+        if tl == "exit":
+            if len(students) == 1:
+                sid = list(students.keys())[0]; sn = students[sid]["name"]
+                try: push(sid, T("Chat has ended. Type 'hi' to start over."))
+                except: pass
+                disconnect(sid, sessions)
+                reply(event.reply_token, T("Ended chat with " + sn + "."))
                 return
-            except ValueError:
-                pass
+            reply(event.reply_token, T("Multiple chats. Use: exit Name"))
+            return
 
-        # If viewing a student — send reply to that student
+        # If viewing someone — send reply
         viewing = us.get("viewing")
         if viewing and viewing in students:
-            sinfo = students[viewing]
             ss = sessions.get(viewing)
             if ss and ss.get("type") == "student":
                 hname = get_name(uid)
-                # Store message in student's session
                 ss["messages"].append({"from": "helper", "name": hname, "text": text, "time": int(time.time())})
-                ss["unread"] = ss.get("unread", 0) + 1
                 save_sessions(sessions)
-
-                # Deliver to student as a simple text
-                try:
-                    push(viewing, T(hname + ": " + text))
+                try: push(viewing, T(hname + ": " + text))
                 except: pass
-
                 reply(event.reply_token, F("Sent", {
                     "type": "bubble", "size": "kilo",
                     "body": {"type": "box", "layout": "horizontal", "paddingAll": "10px",
-                             "contents": [{"type": "text", "text": "Sent to " + sinfo["name"], "size": "xxs", "color": GREEN, "align": "end", "flex": 1}]},
+                             "contents": [{"type": "text", "text": "Sent to " + students[viewing]["name"], "size": "xxs", "color": GREEN, "align": "end", "flex": 1}]},
                 }))
                 return
             else:
                 us["viewing"] = None; save_sessions(sessions)
-                reply(event.reply_token, T("That student disconnected. Type 'inbox'."))
+                reply(event.reply_token, T("Student disconnected. Type 'inbox'."))
                 return
 
-        # Fallback
-        reply(event.reply_token, [T("Type 'inbox' to see your conversations."), ui_inbox(us)])
+        # Not viewing anyone — show inbox
+        reply(event.reply_token, [T("Tap a student to open their chat:"), ui_inbox(us)])
         return
 
-    # ════════════════════════════════════════
-    # PICKING FROM LIST
-    # ════════════════════════════════════════
+    # ── PICKING ──
     if uid in pending:
         cat = pending[uid]["category"]
         avail = get_available(cat, contacts)
@@ -695,9 +696,7 @@ def handle_message(event):
             reply(event.reply_token, T("Reply with a number or 'exit'."))
             return
 
-    # ════════════════════════════════════════
-    # MAIN MENU
-    # ════════════════════════════════════════
+    # ── MENU ──
     if tl in ["hi", "hello", "menu", "start", "help", "hey", "back"]:
         reply(event.reply_token, ui_menu())
         return

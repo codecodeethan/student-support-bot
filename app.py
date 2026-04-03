@@ -726,6 +726,131 @@ def handle_message(event):
 
     reply(event.reply_token, [T("Welcome!"), ui_menu()])
 
+
+# ═══════════════════════════════════════════════════════════════
+# RICH MENU SETUP — hit /setup-menu once to create it
+# ═══════════════════════════════════════════════════════════════
+
+def create_rich_menu_image():
+    """Generate a simple rich menu image using PIL."""
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+    except ImportError:
+        return None
+
+    # 2500x843 is LINE's recommended size for rich menu
+    w, h = 2500, 843
+    img = Image.new("RGB", (w, h), "#1A1A2E")
+    draw = ImageDraw.Draw(img)
+
+    # Try to get a font, fall back to default
+    try:
+        font_large = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 64)
+        font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 36)
+    except:
+        font_large = ImageFont.load_default()
+        font_small = font_large
+
+    # 4 sections: Menu | Inbox | Scholarship | Help
+    section_w = w // 4
+    colors = ["#0066FF", "#00C853", "#FF3D00", "#FF9100"]
+    labels = ["Menu", "Inbox", "Scholarships", "Help"]
+    icons = ["HOME", "INBOX", "FORM", "HELP"]
+
+    for i in range(4):
+        x = i * section_w
+        # Section background
+        r, g, b = int(colors[i][1:3], 16), int(colors[i][3:5], 16), int(colors[i][5:7], 16)
+        draw.rectangle([x + 4, 4, x + section_w - 4, h - 4], fill=(r, g, b))
+        # Icon circle
+        cx = x + section_w // 2
+        cy = h // 2 - 60
+        draw.ellipse([cx - 50, cy - 50, cx + 50, cy + 50], fill="white")
+        # Icon letter
+        letter = icons[i][0]
+        bbox = draw.textbbox((0, 0), letter, font=font_large)
+        lw, lh = bbox[2] - bbox[0], bbox[3] - bbox[1]
+        draw.text((cx - lw // 2, cy - lh // 2 - 5), letter, fill=(r, g, b), font=font_large)
+        # Label
+        bbox = draw.textbbox((0, 0), labels[i], font=font_small)
+        lw = bbox[2] - bbox[0]
+        draw.text((cx - lw // 2, cy + 70), labels[i], fill="white", font=font_small)
+
+    path = os.path.join(DATA_DIR, "richmenu.png")
+    img.save(path, "PNG")
+    return path
+
+
+@app.route("/setup-menu", methods=["GET"])
+def setup_rich_menu():
+    """Hit this endpoint ONCE to create and set the rich menu."""
+    import requests as req
+
+    headers = {
+        "Authorization": "Bearer " + CHANNEL_ACCESS_TOKEN,
+        "Content-Type": "application/json",
+    }
+
+    # Step 1: Create rich menu object
+    menu_data = {
+        "size": {"width": 2500, "height": 843},
+        "selected": True,
+        "name": "Student Support Hub",
+        "chatBarText": "Support Hub Menu",
+        "areas": [
+            {
+                "bounds": {"x": 0, "y": 0, "width": 625, "height": 843},
+                "action": {"type": "message", "text": "menu"}
+            },
+            {
+                "bounds": {"x": 625, "y": 0, "width": 625, "height": 843},
+                "action": {"type": "message", "text": "inbox"}
+            },
+            {
+                "bounds": {"x": 1250, "y": 0, "width": 625, "height": 843},
+                "action": {"type": "message", "text": "3"}
+            },
+            {
+                "bounds": {"x": 1875, "y": 0, "width": 625, "height": 843},
+                "action": {"type": "message", "text": "help"}
+            },
+        ],
+    }
+
+    r = req.post("https://api.line.me/v2/bot/richmenu", headers=headers, json=menu_data)
+    if r.status_code != 200:
+        return "Failed to create menu: " + r.text, 500
+
+    menu_id = r.json().get("richMenuId")
+
+    # Step 2: Upload image
+    img_path = create_rich_menu_image()
+    if not img_path:
+        return "PIL not installed. Run: pip install Pillow", 500
+
+    with open(img_path, "rb") as f:
+        r2 = req.post(
+            "https://api-data.line.me/v2/bot/richmenu/" + menu_id + "/content",
+            headers={
+                "Authorization": "Bearer " + CHANNEL_ACCESS_TOKEN,
+                "Content-Type": "image/png",
+            },
+            data=f.read(),
+        )
+    if r2.status_code != 200:
+        return "Failed to upload image: " + r2.text, 500
+
+    # Step 3: Set as default for all users
+    r3 = req.post(
+        "https://api.line.me/v2/bot/user/all/richmenu/" + menu_id,
+        headers={"Authorization": "Bearer " + CHANNEL_ACCESS_TOKEN},
+    )
+    if r3.status_code != 200:
+        return "Failed to set default: " + r3.text, 500
+
+    return "Rich menu created and set! Menu ID: " + menu_id
+
+
 @app.route("/", methods=["GET"])
 def health(): return "Running!"
 if __name__ == "__main__": app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
